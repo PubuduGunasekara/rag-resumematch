@@ -9,15 +9,21 @@ though a human reader wouldn't notice it.
 
 Reuses the edit-distance substitution logic from Assignment 3
 (probable_substitutes / min_edit_distance) directly, with the
-vocabulary built from a SAMPLE of the job-postings corpus (so tech
-jargon like "k8s", "faiss", "pytorch" survives as "known") rather than
-a generic English corpus or the resume's own text alone (a resume is
-too small a sample to know what's jargon vs. typo).
+vocabulary built from the FULL job-postings corpus (so tech jargon like
+"faiss", "pytorch", "redis" survives as "known") rather than a generic
+English corpus or the resume's own text alone (a resume is too small a
+sample to know what's jargon vs. typo).
+
+On top of that sit resume-specific guard rails (skip URLs, acronyms,
+brand-cased names, short words; edit-distance 2 only for long words),
+because a resume -- unlike Assignment 3's typo-heavy queries -- is
+mostly clean text full of legitimately unknown proper nouns.
 """
 
 import re
 import string
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 LETTERS = string.ascii_lowercase
@@ -99,7 +105,36 @@ def _match_case(correction: str, original: str) -> str:
     return correction
 
 
+
 # -----------------------------------------------------------------------
+# Resume-specific guard rails (NOT from Assignment 3).
+#
+# Assignment 3 assumed a short, typo-heavy query where every unknown
+# word is probably a typo. A resume is the opposite: long, mostly clean,
+# and full of proper nouns, acronyms, product names and URLs that are
+# unknown to any vocabulary without being typos. Measured on a clean
+# test resume, "correct every unknown word" changed 42 words and every
+# change was wrong (Redis->Hedis, OpenAI->Openam). Each rule below
+# exists because of a specific false positive seen on real text; see
+# docs/design.md and scripts/eval_query_correction.py.
+# -----------------------------------------------------------------------
+
+# A whitespace-delimited span that looks like a URL, email or domain
+# ("github.com/dwhitaker-demo", "x@example.com") is left alone entirely:
+# its pieces are identifiers, not words.
+_URLISH = re.compile(r"[@/]|[A-Za-z]\.[A-Za-z]")
+_WORD = re.compile(r"[A-Za-z]+")
+
+
+def _skip_reason(token: str, min_token_length: int) -> str | None:
+    """Why `token` must not be corrected, or None if it's a candidate."""
+    if len(token) < min_token_length:
+        return "short"        # Lua, ESP, BT: every short string has a neighbour
+    if token.isupper():
+        return "acronym"      # NSBM, AWS, EXE
+    if any(ch.isupper() for ch in token[1:]):
+        return "mixed_case"   # OpenAI, PyTorch, PostgreSQL: brand names
+    return None
 
 
 @dataclass
@@ -108,77 +143,89 @@ class CorrectionResult:
     corrected_token: str
     was_corrected: bool
     confidence: float | None  # probability of the chosen correction, if corrected
+    edit_distance: int | None = None  # 1 or 2 when corrected
 
 
-def correct_query(query: str, vocabulary_probs: dict[str, float], min_confidence_margin: float = 0.0) -> tuple[str, list[CorrectionResult]]:
+def correct_query(
+    query: str,
+    vocabulary_probs: dict[str, float],
+    min_token_length: int = 4,
+    edit2_min_length: int = 8,
+) -> tuple[str, list[CorrectionResult]]:
     """
     Input:
-        query: raw resume text (or an extracted query phrase from it).
+        query: raw resume text.
         vocabulary_probs: word -> probability, from build_domain_vocabulary.
-        min_confidence_margin: only replace a token if the top
-            edit-distance candidate's probability exceeds the raw
-            token's own frequency (if any) by at least this margin —
-            guards against "correcting" a rare-but-real word (a real
-            surname, a niche tool name not in the sample).
+        min_token_length: unknown words shorter than this are never
+            corrected (short strings almost always have a real word one
+            edit away, so a "match" carries no evidence).
+        edit2_min_length: edit-distance-2 candidates (Assignment 3's
+            probable_substitutes) are only considered for words at least
+            this long. Two edits on a 6-letter word rewrites a third of
+            it (Khoury -> Hours); on a 9-letter word it's a plausible
+            double typo (kuberntes -> kubernetes).
     Output:
-        (corrected_query, list of CorrectionResult for tokens actually
-        looked at) — kept separate from the string so this is testable
-        and debuggable, not a black box.
+        (corrected_query, list of CorrectionResult for every unknown
+        token that was considered) -- kept separate from the string so
+        the UI can show exactly what changed.
     """
     results: list[CorrectionResult] = []
 
-    def replace(match: re.Match) -> str:
+    def correct_word(match: re.Match) -> str:
         original = match.group(0)
         lower = original.lower()
 
         if lower in vocabulary_probs:
             return original  # known word (incl. domain jargon) -- never touched
+        if _skip_reason(original, min_token_length) is not None:
+            return original
 
-        raw_prob = vocabulary_probs.get(lower, 0.0)
-
-        best = _best_edit1_match(lower, vocabulary_probs)
-        if best is None:
+        best, distance = _best_edit1_match(lower, vocabulary_probs), 1
+        if best is None and len(lower) >= edit2_min_length:
             edit2 = probable_substitutes(lower, vocabulary_probs, maxret=1)
-            best = edit2[0] if edit2 else None
+            best, distance = (edit2[0] if edit2 else None), 2
 
         if best is None:
             results.append(CorrectionResult(original, original, False, None))
             return original
 
         candidate, candidate_prob = best
-        if candidate_prob < raw_prob + min_confidence_margin:
-            results.append(CorrectionResult(original, original, False, None))
-            return original
-
         corrected = _match_case(candidate, original)
-        results.append(CorrectionResult(original, corrected, True, candidate_prob))
+        results.append(CorrectionResult(original, corrected, True, candidate_prob, distance))
         return corrected
 
-    corrected_query = re.sub(r"[A-Za-z]+", replace, query)
+    def correct_span(match: re.Match) -> str:
+        span = match.group(0)
+        if _URLISH.search(span):
+            return span
+        return _WORD.sub(correct_word, span)
+
+    corrected_query = re.sub(r"\S+", correct_span, query)
     return corrected_query, results
 
 
-def build_domain_vocabulary(job_posting_sample_texts: list[str], min_count_threshold: int = 2) -> dict[str, float]:
+def build_domain_vocabulary(texts: Iterable[str], min_count_threshold: int = 2) -> dict[str, float]:
     """
-    Builds the vocabulary/probability dict used by correct_query, from a
-    SAMPLE of job-posting description/skills_desc text (not the full
-    124k-row corpus — a few thousand postings' worth of text is plenty
-    to establish "faiss" and "k8s" are real words; building this from
-    the full corpus on every run would be wasted work).
+    Builds the vocabulary/probability dict used by correct_query from
+    job-posting text.
+
+    Feed it the FULL corpus, not a sample: one streaming pass over all
+    ~124k postings takes ~15s and grows the vocabulary from ~14k to
+    ~160k words, which on its own cut false corrections on a clean test
+    resume from 42 to 8 (Redis, Vite, OpenAI, common first names are
+    all "known" at full scale but not in a 2k-posting sample).
 
     Input:
-        job_posting_sample_texts: list of raw text (e.g. 2000-5000
-            sampled posting descriptions).
-        min_count_threshold: words below this frequency are excluded —
-            mirrors the same OOV-robustness tradeoff documented in
-            Assignment 4's StyleGram (too low a threshold lets noise in
-            as "known"; too high drops real jargon that appears a
-            handful of times across the sample).
+        texts: posting description/skills/title text (any iterable, so
+            it can stream without holding the corpus in memory).
+        min_count_threshold: words below this frequency are excluded.
+            2 drops one-off typos in the postings themselves ("kubernets"
+            appears once); 5 was tested and drops real words like
+            "retries" and "hexagonal", which then get mis-corrected.
     """
     counts: Counter[str] = Counter()
-    for text in job_posting_sample_texts:
-        for token in re.findall(r"[A-Za-z]+", text.lower()):
-            counts[token] += 1
+    for text in texts:
+        counts.update(re.findall(r"[a-z]+", text.lower()))
 
     kept = {word: count for word, count in counts.items() if count >= min_count_threshold}
     total = sum(kept.values())

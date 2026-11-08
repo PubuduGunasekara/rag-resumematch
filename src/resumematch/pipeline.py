@@ -7,11 +7,12 @@ rebuild the index on every call, since that would mean re-processing
 """
 
 import os
+from dataclasses import dataclass
 
 import yaml
 
 from resumematch.ingest.parse_resume import parse_resume
-from resumematch.preprocess.query_correction import build_domain_vocabulary, correct_query
+from resumematch.preprocess.query_correction import CorrectionResult, correct_query
 from resumematch.retrieval.embedder import Embedder
 from resumematch.retrieval.vector_store import VectorStore
 from resumematch.generation.ollama_client import OllamaClient
@@ -22,12 +23,26 @@ class IndexNotBuiltError(RuntimeError):
     """Raised when the vector store is empty — run scripts/build_index.py first."""
 
 
+@dataclass
+class PipelineResult:
+    gap_analysis: GapAnalysisResult
+    # Every typo fix applied to the resume before embedding, so the UI
+    # can show "pyhton -> python" instead of correcting invisibly.
+    # Empty when correction was off or nothing needed fixing.
+    corrections: list[CorrectionResult]
+
+
 def load_config(config_path: str = "config.yaml") -> dict:
     with open(config_path) as f:
         return yaml.safe_load(f)
 
 
-def run_pipeline(resume_path: str, config_path: str = "config.yaml", domain_vocabulary: dict[str, float] | None = None) -> GapAnalysisResult:
+def run_pipeline(
+    resume_path: str,
+    config_path: str = "config.yaml",
+    domain_vocabulary: dict[str, float] | None = None,
+    apply_correction: bool = True,
+) -> PipelineResult:
     """
     Input:
         resume_path: path to the uploaded resume (.pdf or .docx).
@@ -36,6 +51,8 @@ def run_pipeline(resume_path: str, config_path: str = "config.yaml", domain_voca
             since rebuilding it on every query would mean re-reading a
             posting sample on every resume upload. The Streamlit app
             builds this once at startup and reuses it.
+        apply_correction: False skips typo correction even when a
+            vocabulary is available (UI toggle / A-B comparison).
     """
     config = load_config(config_path)
 
@@ -47,12 +64,14 @@ def run_pipeline(resume_path: str, config_path: str = "config.yaml", domain_voca
             "The job-postings index is empty. Run `python scripts/build_index.py` first."
         )
 
-    if domain_vocabulary is not None:
-        corrected_text, _corrections = correct_query(
-            resume_text, domain_vocabulary, min_confidence_margin=config["query_correction"]["min_confidence_margin"]
-        )
+    corrections: list[CorrectionResult] = []
+    if apply_correction and domain_vocabulary is not None:
+        corrected_text, considered = correct_query(resume_text, domain_vocabulary, **config["query_correction"])
+        corrections = [c for c in considered if c.was_corrected]
     else:
-        corrected_text = resume_text  # vocabulary not available (e.g. a quick dev run) — skip correction rather than fail
+        # Correction off, or no vocabulary yet (index not built with the
+        # current build_index.py) -- skip rather than fail.
+        corrected_text = resume_text
 
     # Must match whatever EMBEDDING_MODEL scripts/build_index.py was run
     # with -- a different model here would embed queries into a space
@@ -64,10 +83,13 @@ def run_pipeline(resume_path: str, config_path: str = "config.yaml", domain_voca
     retrieved = store.query(query_embedding, top_k=config["retrieval"]["top_k"])
 
     client = OllamaClient()
-    return run_gap_analysis(
+    # The LLM gets the ORIGINAL resume text: correction exists to make
+    # retrieval robust, and the model reads typos fine on its own.
+    gap_analysis = run_gap_analysis(
         resume_text=resume_text,
         retrieved_chunks=retrieved,
         client=client,
         temperature=config["generation"]["temperature"],
         max_tokens=config["generation"]["max_tokens"],
     )
+    return PipelineResult(gap_analysis=gap_analysis, corrections=corrections)

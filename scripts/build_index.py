@@ -23,16 +23,21 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from resumematch.ingest.job_postings_loader import download_dataset, iter_job_postings, load_company_names
+from resumematch.ingest.job_postings_loader import (
+    download_dataset,
+    iter_job_postings,
+    iter_posting_texts,
+    load_company_names,
+)
 from resumematch.preprocess.chunker import chunk_job_posting
 from resumematch.preprocess.query_correction import build_domain_vocabulary
 from resumematch.retrieval.embedder import Embedder
 from resumematch.retrieval.vector_store import VectorStore
 
-# How many posting descriptions to sample for the query-correction
-# vocabulary -- a few thousand is plenty (see query_correction.py); this
-# is independent of --limit, which controls how much gets INDEXED.
-VOCAB_SAMPLE_SIZE = 3000
+# The query-correction vocabulary is always built from the FULL corpus,
+# independent of --limit (which only controls how much gets INDEXED):
+# it's one ~15s streaming pass, and a small sample makes the corrector
+# "fix" real tech terms it hasn't seen (see query_correction.py).
 VOCAB_OUTPUT_PATH = Path("data/processed/domain_vocab.json")
 
 
@@ -56,7 +61,6 @@ def main():
     store = VectorStore(persist_dir=persist_dir)
 
     total_indexed = 0
-    vocab_sample: list[str] = []
     for batch in iter_job_postings(csv_dir, batch_size=args.batch_size):
         if args.limit is not None and total_indexed >= args.limit:
             break
@@ -66,10 +70,6 @@ def main():
         all_chunks = []
         for posting in batch:
             all_chunks.extend(chunk_job_posting(posting))
-            if len(vocab_sample) < VOCAB_SAMPLE_SIZE:
-                vocab_sample.append(posting.description)
-                if posting.skills_desc:
-                    vocab_sample.append(posting.skills_desc)
 
         if not all_chunks:
             continue
@@ -82,8 +82,8 @@ def main():
 
     print(f"Done. {total_indexed} postings indexed, {store.count()} chunks in {persist_dir}.")
 
-    print(f"Building query-correction vocabulary from {len(vocab_sample)} sampled texts...")
-    vocabulary = build_domain_vocabulary(vocab_sample)
+    print("Building query-correction vocabulary from the full corpus...")
+    vocabulary = build_domain_vocabulary(iter_posting_texts(csv_dir))
     VOCAB_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     VOCAB_OUTPUT_PATH.write_text(json.dumps(vocabulary))
     print(f"Wrote {len(vocabulary)}-word domain vocabulary to {VOCAB_OUTPUT_PATH}.")

@@ -11,10 +11,10 @@ retrieval:
   top_k: 5
 
 query_correction:
-  # reused from Assignment 3: only correct a query token if it's not
-  # already a known vocabulary word, and only act on the top candidate
-  # if it clears this probability margin over the raw (uncorrected) token
-  min_confidence_margin: 0.0
+  # Guard rails for running Assignment 3's corrector on resume text; see
+  # query_correction.correct_query for the false positive behind each.
+  min_token_length: 4     # never correct shorter unknown words (Lua, ESP)
+  edit2_min_length: 8     # edit-distance-2 fixes only on long words
 
 generation:
   temperature: 0.2        # low temperature: this is an analytical task,

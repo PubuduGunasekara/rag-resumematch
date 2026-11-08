@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 # env vars (docker-compose) take precedence.
 load_dotenv()
 
-from resumematch.pipeline import run_pipeline, IndexNotBuiltError
+from resumematch.pipeline import run_pipeline, IndexNotBuiltError  # noqa: E402 (after load_dotenv)
 
 # Written by scripts/build_index.py from a sample of indexed postings —
 # see VOCAB_OUTPUT_PATH there. Kept as a plain JSON file rather than
@@ -50,6 +50,18 @@ def get_domain_vocabulary():
     return json.loads(DOMAIN_VOCAB_PATH.read_text())
 
 
+apply_correction = st.sidebar.toggle(
+    "Typo correction",
+    value=True,
+    help=(
+        "Fix typos/PDF-extraction artifacts in the resume before retrieval, "
+        "using edit distance against a vocabulary built from all job postings. "
+        "Turn off to compare retrieval with and without it."
+    ),
+)
+if get_domain_vocabulary() is None:
+    st.sidebar.caption("No vocabulary found yet (run scripts/build_index.py), so correction is skipped.")
+
 uploaded_file = st.file_uploader("Resume (PDF or DOCX)", type=["pdf", "docx"])
 
 if uploaded_file is not None:
@@ -59,13 +71,29 @@ if uploaded_file is not None:
 
     with st.spinner("Retrieving matching postings and running gap analysis..."):
         try:
-            result = run_pipeline(tmp_path, domain_vocabulary=get_domain_vocabulary())
+            pipeline_result = run_pipeline(
+                tmp_path, domain_vocabulary=get_domain_vocabulary(), apply_correction=apply_correction
+            )
         except IndexNotBuiltError:
             st.error(
                 "The job-postings index hasn't been built yet. Run "
                 "`python scripts/build_index.py` before using this app."
             )
             st.stop()
+    result = pipeline_result.gap_analysis
+
+    if apply_correction:
+        corrections = pipeline_result.corrections
+        label = f"Typo corrections applied before retrieval ({len(corrections)})"
+        with st.expander(label, expanded=bool(corrections)):
+            if corrections:
+                st.table([
+                    {"In resume": c.original_token, "Searched as": c.corrected_token,
+                     "Edit distance": c.edit_distance}
+                    for c in corrections
+                ])
+            else:
+                st.write("No typos found. The resume was searched exactly as written.")
 
     st.subheader("Matched")
     for claim in result.matched:

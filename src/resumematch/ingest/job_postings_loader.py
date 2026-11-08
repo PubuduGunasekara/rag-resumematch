@@ -88,6 +88,16 @@ def iter_job_postings(csv_dir: Path, batch_size: int = 1000) -> Iterator[list[Jo
             yield batch
 
 
+def iter_posting_texts(csv_dir: Path, batch_size: int = 20000) -> Iterator[str]:
+    """Every non-empty title/description/skills_desc string in the corpus,
+    streamed -- feeds build_domain_vocabulary without loading the whole
+    CSV or building JobPosting objects (only 3 of ~30 columns are read)."""
+    columns = ["title", "description", "skills_desc"]
+    for batch_df in pd.read_csv(csv_dir / "postings.csv", usecols=columns, chunksize=batch_size):
+        for column in columns:
+            yield from batch_df[column].dropna()
+
+
 def load_company_names(csv_dir: Path) -> dict[str, str]:
     """company_id -> company name, for display in citations ("Posting at Acme Corp")."""
     companies_path = csv_dir / "companies" / "companies.csv"

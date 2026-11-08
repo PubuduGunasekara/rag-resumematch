@@ -48,10 +48,49 @@ artifacts (dropped characters, run-together words). A single corrupted
 token can hurt embedding-similarity retrieval even though a human
 reader wouldn't notice it. Assignment 3's edit-distance substitution
 logic (`probable_substitutes`/`min_edit_distance`) is reused directly,
-with the vocabulary built from a SAMPLE of job-posting text (so tech
-jargon like "k8s," "faiss," "pytorch" survives as "known" rather than
+with the vocabulary built from the FULL job-posting corpus (so tech
+jargon like "faiss," "pytorch," "redis" survives as "known" rather than
 being "corrected" into something else) — the same generative mechanism
 from the coursework, applied to a genuinely different, useful problem.
+
+**What went wrong first, and the fix.** Run as-is (vocabulary from a
+2k-posting sample, "correct any unknown word"), it changed 42 words on a
+clean test resume and every change was wrong (Redis→Hedis,
+OpenAI→Openam, Khoury→Hours). Assignment 3 assumed a short, typo-heavy
+query; a resume is long, mostly clean, and full of legitimately unknown
+proper nouns. Two changes, each driven by the observed failures:
+
+1. Vocabulary from all ~124k postings (one ~15s streaming pass;
+   14k → 160k words). This alone took false corrections 42 → 8.
+2. Guard rails for the remaining patterns: leave URL/email spans
+   untouched (dwhitaker→whitaker), skip ALL-CAPS acronyms (NSBM→SBM)
+   and mixed-case brand names (OpenAI), skip words under 4 letters
+   (Lua→La), and allow edit-distance-2 fixes only on words of 8+
+   letters (Khoury→Hours). Result: 0 false corrections on the clean
+   resume. Title-case words are still corrected, so a typo at the start
+   of a bullet ("Devloped") is caught.
+
+The original `min_confidence_margin` check was removed: it compared the
+candidate against the unknown word's own probability, which is always 0,
+so it could never block a correction.
+
+**Measured effect** (`scripts/eval_query_correction.py`): inject random
+non-word typos into eligible resume words, then compare top-10 retrieval
+against the clean resume's top-10. Dummy test resume, 2k-posting index,
+5 seeds:
+
+| typo rate | overlap, correction OFF | overlap, correction ON | typos restored exactly |
+|---|---|---|---|
+| 5%  | 0.90 | 0.96 | 77% |
+| 10% | 0.74 | 0.84 | 82% |
+| 20% | 0.70 | 0.84 | 76% |
+| 30% | 0.66 | 0.76 | 76% |
+
+Caveats: one resume, small index, synthetic typos (real OCR damage also
+merges/splits words, which edit-1/2 on single tokens can't fix). Typos
+past the embedder's 512-token window have no effect either way (see the
+resume-truncation risk below), which compresses the OFF/ON gap. Re-run
+on the full index and several resumes before quoting final numbers.
 
 ## Dataset
 
@@ -100,11 +139,25 @@ README, not committed (see `.gitignore`).
   `tests/test_chunker.py`). **Action**: once `build_index.py` runs
   against the real dataset, print and read actual chunks from 5-10
   real postings before trusting them at scale.
-- The domain vocabulary for query correction is now built and
-  persisted by `build_index.py` (`data/processed/domain_vocab.json`,
-  sampled from the first ~3,000 indexed postings), but hasn't been
-  checked against a real resume yet — same OOV-threshold risk as
-  Assignment 4's StyleGram applies until that's done.
+- **Resolved**: query correction checked against a real resume and
+  reworked (see "The query-correction tie-in" above): full-corpus
+  vocabulary, guard rails, 0 false corrections on the clean test resume,
+  corrections shown in the UI with an on/off toggle, measured by
+  `scripts/eval_query_correction.py`.
+- **Open — resume truncation**: the whole resume is embedded as ONE
+  query, but bge-small reads at most 512 tokens. The dummy test resume
+  is 1,017 tokens, so roughly its second half (experience/skills) is
+  invisible to retrieval. Likely fix: embed sections separately and
+  merge results.
+- **Open — posting boilerplate**: on the first 2k postings, 536/4,180
+  chunks (13%) contain equal-opportunity text and one company's "About
+  us" chunk appears 29 times verbatim. These can win retrieval over real
+  requirements and fill every top-k slot. Also: chunks are cut
+  mid-sentence and 13 chunks are under 30 words.
+- **Open — gap analysis over-claims**: first end-to-end run
+  (llama3.2:3b) followed the output format, but listed 23 MATCHED vs 3
+  MISSING, including "5+ years of Swift" as evidenced for an MS student.
+  Needs prompt work before the output can be trusted.
 - `parse_response` in `gap_analysis.py` now raises `ValueError` (with
   the raw response attached) on a missing header, a missing `[N]`
   citation, or an out-of-range `[N]` — it never silently returns an

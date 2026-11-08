@@ -1,14 +1,16 @@
-# GCP deployment profile: GPU passthrough, full-size model, full dataset.
-# Run on the GCP VM (after nvidia-container-toolkit is installed — see
-# gcp/start.sh, which checks for it): docker-compose -f docker-compose.gcp.yml up --build -d
+# GCP profile: NVIDIA GPU for Ollama. On the VM (nvidia-container-toolkit
+# installed), from the repo root:
+#   docker compose -f docker-compose.gcp.yml up --build -d
+#
+# Copy the index up first instead of rebuilding it on paid GPU hours:
+#   gcloud compute scp --recurse chroma_db data/processed <vm>:~/resumematch/ --zone=<zone>
+# (without it the container builds the index itself, ~40+ min.)
 
 services:
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.40.15   # pinned: the version all measurements used (JSON-schema output)
     volumes:
-      - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
+      - ollama_models:/root/.ollama
     deploy:
       resources:
         reservations:
@@ -16,6 +18,7 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    restart: unless-stopped
 
   app:
     build: .
@@ -25,16 +28,20 @@ services:
       - "8501:8501"
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - OLLAMA_MODEL=llama3.1:8b   # GPU has headroom for the bigger model
+      # llama3.2:3b was more accurate AND faster than llama3.1:8b in every
+      # measurement so far (docs/design.md); switch to 8b only if a GPU
+      # run says otherwise.
+      - OLLAMA_MODEL=${OLLAMA_MODEL_GCP:-llama3.2:3b}
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
-      - CHROMA_PERSIST_DIR=/data/chroma_db
-      - KAGGLE_USERNAME=${KAGGLE_USERNAME}
-      - KAGGLE_KEY=${KAGGLE_KEY}
+      - CHROMA_PERSIST_DIR=/app/chroma_db
+      - KAGGLEHUB_CACHE=/app/data/raw/kagglehub
+      - KAGGLE_USERNAME=${KAGGLE_USERNAME:-}
+      - KAGGLE_KEY=${KAGGLE_KEY:-}
     volumes:
-      - chroma_data:/data/chroma_db
+      - ./chroma_db:/app/chroma_db
+      - ./data/processed:/app/data/processed
       - ./data/raw:/app/data/raw
     restart: unless-stopped
 
 volumes:
-  ollama_data:
-  chroma_data:
+  ollama_models:

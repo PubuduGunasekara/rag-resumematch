@@ -67,17 +67,35 @@ resume.pdf ─► parse ─► query_correction ─► embed ─► retrieve top
 cp .env.example .env   # fill in KAGGLE_USERNAME / KAGGLE_KEY (see comments in the file)
 ```
 
-### Local (CPU, laptop)
+### Local (Docker, CPU)
 
 ```bash
-docker-compose -f docker-compose.local.yml up --build
+docker compose -f docker-compose.local.yml up --build
+# open http://localhost:8501
 ```
-First run downloads the dataset and builds the index automatically
-(`entrypoint.sh`) — this is slow once, then cached in a Docker volume.
-For fast dev iteration, build a small index directly instead:
+On start the app container waits for Ollama, pulls `llama3.2:3b` if it's
+missing (~2 GB, once), then reuses `./chroma_db` + `./data/processed` if
+they hold a complete index (`chroma_db/BUILD_COMPLETE.json`). If not --
+e.g. a fresh clone -- it downloads the dataset and builds the index
+itself (~40 min; add `BUILD_INDEX_ARGS="--limit 2000"` before the
+command for a quick first run). Both folders are bind-mounted, so the
+index is built once and survives restarts. `.env` is read by compose for
+the Kaggle credentials and is never copied into the image
+(`.dockerignore`).
+
+Docker on a Mac can't use the Metal GPU, so Ollama in the container runs
+on CPU: ~37 s per resume (warm) vs ~11 s with native Ollama. To use a
+natively installed Ollama from the container:
 ```bash
-python scripts/build_index.py --limit 2000
-streamlit run src/resumematch/frontend/streamlit_app.py
+OLLAMA_HOST_FOR_APP=http://host.docker.internal:11434 docker compose -f docker-compose.local.yml up
+```
+
+### Local (no Docker, fastest to iterate)
+
+```bash
+python -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
+.venv/bin/python scripts/build_index.py --limit 2000      # full corpus: drop --limit (~40 min)
+.venv/bin/streamlit run src/resumematch/frontend/streamlit_app.py
 ```
 
 ### GCP (GPU, course demo)
@@ -85,10 +103,10 @@ streamlit run src/resumematch/frontend/streamlit_app.py
 ```bash
 source .env  # or export GCP_PROJECT_ID etc.
 ./gcp/start.sh
-# SSH in once: install nvidia-container-toolkit + docker-compose, clone this repo
-# build the index LOCALLY first (free), then:
-#   gcloud compute scp --recurse ./chroma_db <vm-name>:~/resumematch/chroma_db --zone=<zone>
-docker-compose -f docker-compose.gcp.yml up --build -d
+# SSH in once: install nvidia-container-toolkit + Docker Compose, clone this repo.
+# Copy the index you built locally instead of rebuilding on GPU hours:
+#   gcloud compute scp --recurse chroma_db data/processed <vm-name>:~/resumematch/ --zone=<zone>
+docker compose -f docker-compose.gcp.yml up --build -d
 # ... when done:
 ./gcp/stop.sh
 ```

@@ -32,7 +32,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from resumematch.ingest.parse_resume import parse_resume
-from resumematch.pipeline import load_config
+from resumematch.pipeline import load_config, resolve_persist_dir
 from resumematch.preprocess.query_correction import LETTERS, correct_query
 from resumematch.preprocess.resume_sections import split_resume
 from resumematch.retrieval.embedder import Embedder
@@ -96,7 +96,7 @@ def main():
     rules = config["query_correction"]
     vocab = json.loads(VOCAB_PATH.read_text())
     embedder = Embedder(os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"))
-    store = VectorStore(persist_dir=config.get("chroma_persist_dir", "./chroma_db"))
+    store = VectorStore(persist_dir=resolve_persist_dir(config))
     print(f"Index: {store.count()} chunks | vocabulary: {len(vocab)} words | top-k={args.top_k}\n")
 
     def retrieve(text: str) -> list[str]:

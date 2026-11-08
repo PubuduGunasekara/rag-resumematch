@@ -45,6 +45,14 @@ def load_config(config_path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
+def resolve_persist_dir(config: dict) -> str:
+    """Where the Chroma index lives. CHROMA_PERSIST_DIR (what
+    build_index.py writes to, and what Docker sets) wins over
+    config.yaml, so the indexer and the app can never silently point at
+    different folders -- that would look like an empty index."""
+    return os.environ.get("CHROMA_PERSIST_DIR") or config.get("chroma_persist_dir", "./chroma_db")
+
+
 def run_pipeline(
     resume_path: str,
     config_path: str = "config.yaml",
@@ -66,7 +74,7 @@ def run_pipeline(
 
     resume_text = parse_resume(resume_path)
 
-    store = VectorStore(persist_dir=config.get("chroma_persist_dir", "./chroma_db"))
+    store = VectorStore(persist_dir=resolve_persist_dir(config))
     if store.count() == 0:
         raise IndexNotBuiltError(
             "The job-postings index is empty. Run `python scripts/build_index.py` first."

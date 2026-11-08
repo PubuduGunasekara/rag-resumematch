@@ -21,7 +21,7 @@ import os
 from dotenv import load_dotenv
 
 from resumematch.ingest.parse_resume import parse_resume
-from resumematch.pipeline import load_config
+from resumematch.pipeline import load_config, resolve_persist_dir
 from resumematch.preprocess.resume_sections import split_resume
 from resumematch.retrieval.embedder import Embedder
 from resumematch.retrieval.fusion import fuse_rankings, retrieve_for_resume
@@ -43,7 +43,7 @@ def main():
 
     config = load_config()
     embedder = Embedder(os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"))
-    store = VectorStore(persist_dir=config.get("chroma_persist_dir", "./chroma_db"))
+    store = VectorStore(persist_dir=resolve_persist_dir(config))
     per_section_k = config["retrieval"]["per_section_k"]
     budget = embedder.max_tokens - 32
 

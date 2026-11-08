@@ -43,6 +43,10 @@ VOCAB_OUTPUT_PATH = Path("data/processed/domain_vocab.json")
 # Written for inspection/reproducibility: exactly which sentences were
 # stripped from postings as boilerplate (see preprocess/boilerplate.py).
 BOILERPLATE_OUTPUT_PATH = Path("data/processed/boilerplate_sentences.json")
+# Written into the index folder LAST, only after everything succeeded.
+# entrypoint.sh checks for it, so a build that crashed halfway is
+# rebuilt instead of being mistaken for a finished index.
+COMPLETE_MARKER = "BUILD_COMPLETE.json"
 
 
 def main():
@@ -98,6 +102,11 @@ def main():
     VOCAB_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     VOCAB_OUTPUT_PATH.write_text(json.dumps(vocabulary))
     print(f"Wrote {len(vocabulary)}-word domain vocabulary to {VOCAB_OUTPUT_PATH}.")
+
+    marker = {"postings": total_indexed, "chunks": store.count(), "limit": args.limit,
+              "embedding_model": embedding_model, "boilerplate_sentences": len(boilerplate)}
+    (Path(persist_dir) / COMPLETE_MARKER).write_text(json.dumps(marker, indent=2))
+    print(f"Index complete: {marker}")
 
 
 if __name__ == "__main__":

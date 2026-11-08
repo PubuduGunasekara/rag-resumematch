@@ -425,6 +425,33 @@ README, not committed (see `.gitignore`).
   with a smaller quantized model after the course ends, not compete
   with course deadlines for that work now.
 
+**Docker, verified (Nov 8).** Problems found and fixed before the first
+build: no `.dockerignore`, so `COPY . .` would have baked `.env` (the
+Kaggle key), `.venv` and the 3.6 GB index into the image; Ollama started
+with no model; the correction vocabulary lived outside any volume, so
+typo correction would silently switch off after the first restart; a
+crashed index build looked "complete" to the entrypoint; the default
+CUDA torch build (~2.5 GB) would be pulled on x86 for an app that only
+embeds a few short queries; `ollama:latest` was unpinned although
+schema-constrained output needs a recent Ollama; Ollama's port was
+published (on GCP that exposes the GPU to the internet).
+
+Now: CPU torch + the embedding model baked in (image 2.19 GB, no
+secrets -- checked); `scripts/wait_for_ollama.py` waits for Ollama and
+pulls the model; `chroma_db/` and `data/processed/` are bind-mounted and
+reused when `BUILD_COMPLETE.json` (written last by `build_index.py`)
+exists, otherwise rebuilt from scratch; Ollama pinned to 0.40.15, no
+published port. Verified: existing full index reused (no rebuild);
+fresh-clone path (empty folders) downloads from Kaggle, builds, starts
+the app; end-to-end inside the container on CPU-only Ollama: **37 s per
+resume warm** (69 s cold), identical gap-analysis output to native.
+Ollama used ~3.4 GB RAM with llama3.2:3b -- a CPU-only portfolio host
+needs >= 4-6 GB RAM, which rules out the smallest free VMs.
+
+GCP default model changed to llama3.2:3b (`OLLAMA_MODEL_GCP` overrides):
+it beat llama3.1:8b on accuracy and latency in every measurement. Not
+yet verified: the GCP profile itself (NVIDIA runtime, scp of the index).
+
 ## Known risks / open questions (update as the project progresses)
 
 - **Resolved**: all modules are now implemented (chunker, query

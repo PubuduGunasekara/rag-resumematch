@@ -30,7 +30,7 @@ every claim citable back to a specific posting via `job_id` /
 ## Pipeline
 
 ```
-job_postings.csv (124k+ rows, Kaggle)
+postings.csv (123,849 rows, Kaggle v13)
         │  scripts/build_index.py (one-time batch job)
         ▼
   chunk ─► embed ─► ChromaDB (persisted, with citation metadata)

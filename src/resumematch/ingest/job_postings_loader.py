@@ -1,5 +1,5 @@
 """Downloads and batch-iterates the LinkedIn Job Postings dataset
-(Kaggle: arshkon/linkedin-job-postings, 124,000+ rows).
+(Kaggle: arshkon/linkedin-job-postings, version 13: 123,849 rows).
 
 Why kagglehub and not a plain URL: this is the authoritative source we
 actually verified the schema against (job_id, title, description,
@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pandas as pd
 
+DATASET_HANDLE = "arshkon/linkedin-job-postings/versions/13"
+
 
 @dataclass
 class JobPosting:
@@ -39,16 +41,20 @@ def download_dataset(dest_dir: str = "data/raw") -> Path:
     present there. Requires KAGGLE_USERNAME and KAGGLE_KEY env vars
     (see README: Kaggle account -> Settings -> API -> Create New Token).
 
-    Returns the path to the directory containing job_postings.csv,
-    benefits.csv, companies.csv, employee_counts.csv.
+    Returns the path to the directory containing postings.csv plus the
+    jobs/, companies/ and mappings/ subfolders.
     """
     # kagglehub manages its own cache (~/.cache/kagglehub by default, or
     # $KAGGLEHUB_CACHE) and skips the download if the dataset is already
     # there, so dest_dir is not where the files land. Point KAGGLEHUB_CACHE
     # at a mounted volume in Docker to persist the download across runs.
+    #
+    # Pinned to version 13: unpinned, kagglehub fetches "latest", and the
+    # schema has already changed once (job_postings.csv -> postings.csv,
+    # company_details/ -> companies/). Bump deliberately, re-verify columns.
     import kagglehub
 
-    return Path(kagglehub.dataset_download("arshkon/linkedin-job-postings"))
+    return Path(kagglehub.dataset_download(DATASET_HANDLE))
 
 
 def iter_job_postings(csv_dir: Path, batch_size: int = 1000) -> Iterator[list[JobPosting]]:
@@ -58,10 +64,10 @@ def iter_job_postings(csv_dir: Path, batch_size: int = 1000) -> Iterator[list[Jo
 
     Input:
         csv_dir: directory returned by download_dataset (or wherever
-            job_postings.csv already lives).
+            postings.csv already lives).
         batch_size: rows per yielded batch.
     """
-    csv_path = csv_dir / "job_postings.csv"
+    csv_path = csv_dir / "postings.csv"
     for batch_df in pd.read_csv(csv_path, chunksize=batch_size):
         batch = []
         for _, row in batch_df.iterrows():
@@ -84,7 +90,7 @@ def iter_job_postings(csv_dir: Path, batch_size: int = 1000) -> Iterator[list[Jo
 
 def load_company_names(csv_dir: Path) -> dict[str, str]:
     """company_id -> company name, for display in citations ("Posting at Acme Corp")."""
-    companies_path = csv_dir / "company_details" / "companies.csv"
+    companies_path = csv_dir / "companies" / "companies.csv"
     if not companies_path.exists():
         return {}
     df = pd.read_csv(companies_path, usecols=["company_id", "name"])

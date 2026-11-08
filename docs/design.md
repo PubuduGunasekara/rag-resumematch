@@ -57,8 +57,8 @@ from the coursework, applied to a genuinely different, useful problem.
 
 **LinkedIn Job Postings (2023-2024)**, Kaggle, uploaded by `arshkon`
 (scraper: [ArshKA/LinkedIn-Job-Scraper](https://github.com/ArshKA/LinkedIn-Job-Scraper)),
-with 100,000 additional postings contributed by `zoeyyuzou`. 124,000+
-rows in `job_postings.csv`, plus linked `companies.csv`,
+with 100,000 additional postings contributed by `zoeyyuzou`. 123,849
+rows in `postings.csv` (version 13, pinned), plus linked `companies/companies.csv`,
 `benefits.csv`, `employee_counts.csv`. License: **CC BY-SA 4.0** —
 attribution required; any derivative/processed form distributed from
 this project must remain under the same license.

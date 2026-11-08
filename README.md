@@ -67,6 +67,16 @@ resume.pdf ─► parse ─► query_correction ─► embed ─► retrieve top
 cp .env.example .env   # fill in KAGGLE_USERNAME / KAGGLE_KEY (see comments in the file)
 ```
 
+### Demo on a Mac laptop (recommended for now)
+
+The app runs in Docker; the LLM runs in Ollama installed natively on the
+Mac, so it uses the Metal GPU (~11 s per resume, measured):
+```bash
+brew install ollama && brew services start ollama   # once
+OLLAMA_HOST_FOR_APP=http://host.docker.internal:11434 docker compose -f docker-compose.local.yml up
+# open http://localhost:8501
+```
+
 ### Local (Docker, CPU)
 
 ```bash

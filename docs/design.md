@@ -448,6 +448,15 @@ resume warm** (69 s cold), identical gap-analysis output to native.
 Ollama used ~3.4 GB RAM with llama3.2:3b -- a CPU-only portfolio host
 needs >= 4-6 GB RAM, which rules out the smallest free VMs.
 
+**Decision (Nov 8): laptop first, GCP for the course deployment.**
+Development and demos run on the M3 Pro: the app in Docker, the LLM in
+native Ollama on the Metal GPU (`OLLAMA_HOST_FOR_APP`), measured at
+~11 s per resume warm -- faster than any other setup tested, free, and
+no network or VM dependency. Fully containerized on the Mac (CPU-only
+Ollama) is ~37 s. The GCP T4 profile is still the plan for the course
+deployment and is the step toward a public portfolio link; it's set up
+later, keeping the $50 credit for that.
+
 GCP default model changed to llama3.2:3b (`OLLAMA_MODEL_GCP` overrides):
 it beat llama3.1:8b on accuracy and latency in every measurement. Not
 yet verified: the GCP profile itself (NVIDIA runtime, scp of the index).

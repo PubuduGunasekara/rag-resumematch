@@ -1,6 +1,6 @@
 # ResumeMatch
 
-A RAG system that retrieves relevant job postings from a 124,000+ posting
+A RAG system that retrieves relevant job postings from a 123,849-posting
 corpus against an uploaded resume, and produces a cited gap analysis —
 built for CS6120 (NLP), Fall 2026, Northeastern University.
 

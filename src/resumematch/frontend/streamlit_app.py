@@ -31,7 +31,7 @@ DOMAIN_VOCAB_PATH = Path("data/processed/domain_vocab.json")
 st.set_page_config(page_title="ResumeMatch", layout="wide")
 st.title("ResumeMatch")
 st.caption(
-    "Upload a resume. Retrieves matching job postings from a 124,000+ posting "
+    "Upload a resume. Retrieves matching job postings from a 123,849-posting "
     "corpus (LinkedIn Job Postings 2023-2024, Arsh Koneru, CC BY-SA 4.0) and "
     "produces a cited gap analysis against the closest matches."
 )

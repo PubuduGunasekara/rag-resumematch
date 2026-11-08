@@ -13,7 +13,7 @@ The project spec requires "a database that is no less than 10k entries"
 and "clickable citation to the data source (article and passage)." A
 single resume and a single job posting can't satisfy either requirement
 — there's nothing to scale and nothing to cite into. Reframing the job-
-postings corpus (124,000+ rows) as the indexed database, with the
+postings corpus (123,849 rows; 107,528 distinct postings indexed) as the indexed database, with the
 resume as the query, satisfies both: the corpus is large and real, and
 every retrieved result carries a `job_id` / `job_posting_url` that
 resolves to an actual LinkedIn posting.
@@ -357,6 +357,38 @@ Residual EEO text is mostly inside long run-on lines that also contain
 requirements, which the exemption deliberately keeps. One company's own
 "About us" paragraph repeated across its postings is still indexed --
 the frequency rule can't tell it from real duties.
+
+## Full-scale results (the numbers to quote)
+
+Full index, built with `python scripts/build_index.py` (no `--limit`)
+in ~40 min on an M3 Pro: 123,849 postings -> 107,528 distinct (16,314
+exact duplicates skipped) -> **237,902 chunks**, 3.6 GB on disk.
+Earlier sections' numbers came from 2k/20k dev indexes; these supersede
+them. All measured on the one dummy test resume -- the main caveat.
+
+| what | result | script |
+|---|---|---|
+| chunks with EEO/accommodation text | 2.9% (26.9% before cleanup) | stats over the index |
+| chunks ending at a sentence boundary | 68.4% (25.9% before) | stats over the index |
+| resume tokens retrieval sees | 1,015 / 1,015 (single vector: 510, 50%) | `eval_resume_coverage.py` |
+| skills-swap sensitivity, top-10 overlap | sectioned **0.30**; single vector 1.00 (blind) | `eval_resume_coverage.py` |
+| false corrections on the clean resume | 0 | `eval_query_correction.py` |
+| retrieval kept under 10% typos | 0.80 -> **0.98** with correction | `eval_query_correction.py` |
+| retrieval kept under 20% typos | 0.70 -> 0.84 with correction | `eval_query_correction.py` |
+| gap analysis, verified per run (6 runs) | 4.5 matched, 3.5 missing; 0 format failures | llama3.2:3b |
+| latency | retrieval 0.04 s; full pipeline 11 s (LLM-bound) | M3 Pro, Metal GPU |
+
+Top 10 for the test resume (a React Native / Java / Spring developer):
+Senior React Native Developer, React Native Developer, react native
+lead, Senior Frontend/App Developer, Fullstack React/Node.js Developer,
+Android Developer, Senior Software Engineer (x2, different companies)...
+Verified matches across runs: Java, Kafka, Docker, React Native, Redux,
+JavaScript. Verified gaps: Jest, Enzyme, Webpack, Babel, ESLint, MobX,
+Context API, HTML/CSS, Kafka Streams, Kubernetes.
+
+Before quoting these as general results: run the eval scripts on
+several real resumes (different fields, not just software), and time
+the pipeline on the CPU-only host intended for the portfolio deploy.
 
 ## Dataset
 

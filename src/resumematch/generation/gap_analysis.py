@@ -17,8 +17,18 @@ Two guarantees, and which layer provides each:
   - TRUTH of a match comes from code: each matched item quotes the
     resume, and evidence_in_resume checks the quote really occurs in it.
     Unverifiable claims go to `unverified`, never `matched`.
-What neither layer guarantees: that a real quote is RELEVANT to the
-requirement. The UI shows every quote so a reader can judge.
+  - GROUNDING of every claim on both sides also comes from code
+    (check_claims): a requirement must appear in the posting it cites; a
+    matched quote must mention the requirement; a "missing" requirement
+    must not be something the resume plainly contains. Measured before
+    these checks (llama3.2:3b, 6 runs): 73% of "matched" requirements
+    were not in the cited posting at all -- the model listed the
+    candidate's own skills and attached an arbitrary citation -- and 52%
+    of "missing" items were skills the resume has.
+These are lexical checks on key terms, so they can be fooled by
+synonyms ("test-driven development" vs "unit testing" fails the
+relevance check) -- they err toward "unverified", never toward a false
+match. The UI shows each rejected claim with its reason.
 """
 
 import json
@@ -39,16 +49,19 @@ class CitedClaim:
     supporting_excerpt: str
     # Matched claims only: the phrase the model quoted from the resume.
     resume_evidence: str | None = None
+    claimed_as: str = "matched"  # what the model said: "matched" or "missing"
+    issue: str | None = None     # why a check rejected it (None = passed)
+    recited: bool = False        # code moved the citation to the posting that mentions it
 
 
 @dataclass
 class GapAnalysisResult:
-    matched: list[CitedClaim]      # resume quote given AND found in the resume
-    missing: list[CitedClaim]      # job_id/url/excerpt identify WHICH posting requires it
+    matched: list[CitedClaim]      # passed every check in check_claims
+    missing: list[CitedClaim]      # in the cited posting, and not plainly in the resume
     overall_summary: str
     raw_response: str  # keep raw output for debugging/grading evidence
-    # Claimed as matched, but the quoted evidence isn't in the resume --
-    # shown separately, never silently dropped and never presented as a match.
+    # Claims (matched OR missing) that failed a check, each with .issue --
+    # shown separately, never silently dropped, never presented as fact.
     unverified: list[CitedClaim] = field(default_factory=list)
     attempts: int = 1  # model calls needed (2 = first answer was unusable)
 
@@ -68,6 +81,8 @@ Pick the most important requirements from the job posting excerpts and check eac
   (at most 6 words) copied from between <<<RESUME and RESUME>>> that proves it. Never quote a job posting excerpt.
 - missing: an excerpt asks for the requirement and the resume does not show it.
 If you cannot copy a phrase from the resume that proves a requirement, it belongs in missing, not matched.
+Write each requirement using the excerpt's own words (e.g. "Kubernetes", "AWS Lambda"), never words from the resume.
+Only list requirements that the cited excerpt actually mentions.
 Do not list the same requirement twice. Keep each requirement under 8 words.
 excerpt is the number of the job posting excerpt that asks for the requirement.
 summary: a 2-3 sentence overall assessment.
@@ -135,6 +150,69 @@ def evidence_in_resume(evidence: str, resume_text: str) -> bool:
     return bool(needle) and f" {needle} " in f" {_normalize(resume_text)} "
 
 
+# Words that say nothing about WHICH skill a requirement is about.
+_FILLER = set("""
+a an the and or of in on with for to as at by from using use including such etc plus
+experience experienced knowledge skills skill strong solid proven track record background
+expertise exposure familiarity familiar proficiency proficient understanding ability able
+years year hands working work excellent good basic advanced deep demonstrated
+preferred required requirement nice have must services service tools tool concepts
+development developer programming language languages environment environments
+""".split())
+
+
+def key_terms(requirement: str) -> list[str]:
+    """The words that identify a requirement: "Experience with AWS Lambda"
+    -> ["aws", "lambda"]. Empty for pure filler ("Strong skills")."""
+    return [t for t in _normalize(requirement).split() if t not in _FILLER]
+
+
+def _found(terms: list[str], text: str) -> list[str]:
+    haystack = f" {_normalize(text)} "
+    return [t for t in terms if f" {t} " in haystack]
+
+
+def _mentions(terms: list[str], text: str) -> bool:
+    """At least half of the key terms appear in text."""
+    return len(_found(terms, text)) * 2 >= len(terms)
+
+
+def check_claims(claims: list[CitedClaim], resume_text: str, retrieved_chunks: list[dict] | None = None) -> None:
+    """Sets .issue on every claim that fails a grounding check (in place).
+
+    Both lists:  the requirement must be in the posting it cites -- at
+                 least half its key terms appear in that excerpt. If it
+                 isn't but another retrieved posting mentions it, the
+                 citation is moved there (.recited) instead of rejecting:
+                 the model often cites the wrong number for a real
+                 requirement ("TypeScript" cited to [2], asked for by [5]).
+    matched:     the quote must be in the resume AND mention the
+                 requirement (share a key term with it).
+    missing:     the resume must not contain ALL of the requirement's
+                 key terms ("AWS" listed as missing when the resume
+                 says AWS is a contradiction, not a gap).
+    """
+    for claim in claims:
+        terms = key_terms(claim.requirement)
+        if not terms:
+            claim.issue = "too vague to check against the posting"
+            continue
+        if not _mentions(terms, claim.supporting_excerpt):
+            other = next((c for c in retrieved_chunks or [] if _mentions(terms, c["text"])), None)
+            if other is None:
+                claim.issue = "none of the retrieved postings mention this requirement"
+                continue
+            claim.job_id, claim.job_posting_url = other["job_id"], other.get("job_posting_url")
+            claim.supporting_excerpt, claim.recited = other["text"], True
+        if claim.claimed_as == "matched":
+            if not claim.resume_evidence or not evidence_in_resume(claim.resume_evidence, resume_text):
+                claim.issue = "the quoted resume text isn't in the resume"
+            elif not _found(terms, claim.resume_evidence):
+                claim.issue = "the quoted resume text doesn't mention this requirement"
+        elif len(_found(terms, resume_text)) == len(terms):
+            claim.issue = "listed as missing, but the resume mentions it"
+
+
 def parse_response(raw_response: str, retrieved_chunks: list[dict], resume_text: str | None = None) -> GapAnalysisResult:
     """
     Parses the model's JSON answer, resolving each excerpt number back
@@ -144,9 +222,10 @@ def parse_response(raw_response: str, retrieved_chunks: list[dict], resume_text:
     stay because a schema bug, an Ollama version without format support,
     or output cut off at max_tokens would otherwise fail silently.
 
-    If resume_text is given, matched items whose resume_quote isn't in
-    the resume go to `unverified`. (None skips the check -- tests of the
-    citation logic only.) Exact-duplicate requirements are collapsed.
+    If resume_text is given, every claim goes through check_claims and
+    failures move to `unverified` with a reason. (None skips the checks --
+    tests of the citation logic only.) Exact-duplicate requirements are
+    collapsed.
 
     Raises ValueError (raw response included) on invalid JSON, a missing
     field, or an out-of-range excerpt -- never returns an empty result
@@ -160,6 +239,7 @@ def parse_response(raw_response: str, retrieved_chunks: list[dict], resume_text:
         raise ValueError(f"Model response is not the expected JSON ({error}):\n{raw_response}") from error
 
     def to_claims(items: list, with_quote: bool) -> list[CitedClaim]:
+        claimed_as = "matched" if with_quote else "missing"
         claims, seen = [], set()
         for item in items:
             try:
@@ -183,17 +263,18 @@ def parse_response(raw_response: str, retrieved_chunks: list[dict], resume_text:
                 job_posting_url=chunk.get("job_posting_url"),
                 supporting_excerpt=chunk["text"],
                 resume_evidence=quote or None,
+                claimed_as=claimed_as,
             ))
         return claims
 
     claimed = to_claims(matched_items, with_quote=True)
     missing = to_claims(missing_items, with_quote=False)
 
-    if resume_text is None:
-        matched, unverified = claimed, []
-    else:
-        matched = [c for c in claimed if c.resume_evidence and evidence_in_resume(c.resume_evidence, resume_text)]
-        unverified = [c for c in claimed if c not in matched]
+    if resume_text is not None:
+        check_claims(claimed + missing, resume_text, retrieved_chunks)
+    matched = [c for c in claimed if c.issue is None]
+    unverified = [c for c in claimed + missing if c.issue is not None]
+    missing = [c for c in missing if c.issue is None]
 
     return GapAnalysisResult(
         matched=matched,

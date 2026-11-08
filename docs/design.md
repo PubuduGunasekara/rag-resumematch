@@ -226,12 +226,57 @@ accurate of the two, at under half the latency -- which also favours
 the CPU-only portfolio deployment. Not yet measured: 3B on a CPU-only
 host, and either model across several resumes.
 
-What constrained decoding does NOT fix -- reasoning quality: MISSING
-can list requirements the resume partly covers ("C++ and GoLang" when
-the resume has C++; "Cloud and AWS Administration" alongside an AWS
-match), and a real quote can still be irrelevant. Candidates for a
-code-side check: flag a MISSING item whose key terms appear verbatim in
-the resume.
+**Change 4 -- check every claim from both sides (reasoning quality).**
+Constrained decoding fixed the shape, not the judgement. Counting
+errors over 6 runs (llama3.2:3b, after the chunking fixes):
+
+- 35/48 (73%) "matched" requirements did not appear in the posting they
+  cited. "Java", "Kafka", "Spring Boot" were cited to a React Native
+  posting that mentions none of them -- the model was listing the
+  candidate's own skills as "matched requirements" with an arbitrary
+  citation. The quote-in-resume check couldn't catch it: the quotes
+  were real; the link to the posting was invented.
+- 25/48 (52%) "missing" items were skills the resume has (AWS, Docker,
+  Python, C++, REST APIs); 14 weren't in the cited posting either.
+- 6/48 matched quotes didn't mention the requirement ("Backend" <-
+  "Node.js, Express, Kafka").
+
+`check_claims` now verifies, on key terms (the requirement minus filler
+like "experience with", "strong knowledge of"):
+
+- every claim: its requirement appears in the cited posting (at least
+  half its key terms). If not, but ANOTHER retrieved posting mentions
+  it, the citation is repaired to that posting (the model often gives a
+  real requirement the wrong number) and flagged `recited`;
+- matched: the quote is in the resume AND mentions the requirement;
+- missing: the resume does not contain all of the requirement's key
+  terms ("AWS Lambda" stays missing for a resume with AWS but no Lambda;
+  "AWS" alone is a contradiction).
+
+Failures go to `unverified` with the reason, shown in the UI; the
+model's free-text summary is labelled as unchecked. One prompt line was
+also added: write requirements in the excerpt's own words.
+
+| llama3.2:3b, 6 runs | verified matched / run | verified missing / run | correct on inspection |
+|---|---|---|---|
+| quote check only | 8.0 | 8.0 | no -- see error counts above |
+| + two-sided checks | 1.7 | 3.3 | yes |
+| + "excerpt's own words" prompt | 3.7 | 4.0 | yes |
+| + citation repair | **3.8** | **4.7** | yes |
+
+Kept items across those runs -- matched: React Native, React, Redux,
+JavaScript, Node.js, AWS, Distributed Systems; missing: Jest, Enzyme,
+Webpack, Babel, ESLint, MobX, Context API, HTML/CSS, AWS Lambda, CDK,
+SQS, EKS -- all checked by hand against the resume and postings.
+"Correct on inspection" is my reading, not an independent label set.
+
+Limits: the checks are lexical, so synonyms fail toward "unverified"
+(a quote of "Unit Testing" for "test-driven development" is rejected),
+and a paraphrased quote ("Infra & DevOps: AWS" for a resume line with
+more items in between) is rejected rather than fuzzily accepted --
+loosening that would let invented quotes through. The output is smaller
+but trustworthy; recall is the cost. The summary is still free model
+text and can contradict the checked lists.
 
 ## Chunking job postings: sentences, boilerplate, duplicates
 
@@ -363,9 +408,11 @@ README, not committed (see `.gitignore`).
 - **Resolved — format drift / output length**: constrained decoding
   (JSON schema), see "Generating the gap analysis" above. 8/8 runs
   usable on the first attempt with llama3.2:3b.
-- **Partly resolved — over-claiming**: matches must quote the resume
-  and the quote is verified in code. Open: MISSING items the resume
-  partly covers, and real-but-irrelevant quotes (reasoning quality).
+- **Resolved — over-claiming / contradictory gaps**: every claim is
+  checked from both sides (requirement in the cited posting, quote in
+  the resume and on-topic, "missing" not plainly in the resume), with
+  citation repair. Open: lexical checks miss synonyms (fails safe, to
+  "unverified"); the model's summary is unchecked free text.
 - **Resolved — resume truncation**: the resume is now searched as
   token-bounded sections fused with RRF (see "Why the resume is searched
   as several queries" above).

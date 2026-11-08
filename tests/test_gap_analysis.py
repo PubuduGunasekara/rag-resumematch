@@ -9,7 +9,10 @@ import pytest
 
 from resumematch.generation.gap_analysis import (
     MAX_ITEMS,
+    CitedClaim,
+    check_claims,
     evidence_in_resume,
+    key_terms,
     parse_response,
     response_schema,
     run_gap_analysis,
@@ -160,3 +163,80 @@ def test_gives_up_after_max_attempts_with_the_last_error():
     client = FakeClient(["garbage", "still garbage"])
     with pytest.raises(ValueError, match="still garbage"):
         run_gap_analysis(RESUME, make_chunks(), client, max_attempts=2)
+
+
+# --- Two-sided grounding checks. Each case is a failure seen in real runs. ---
+
+POSTING = "Expertise in React Native for iOS and Android. Experience with Node.js, TypeScript, AWS Lambda."
+FULL_RESUME = "Mobile: React Native (Expo), Redux\nLanguages: Java, Python, JavaScript\nInfra: Docker, AWS"
+
+
+def claim(req, kind="matched", quote=None, excerpt=POSTING):
+    return CitedClaim(req, "1", None, excerpt, quote, claimed_as=kind)
+
+
+def test_key_terms_drop_filler():
+    assert key_terms("Strong experience with AWS Lambda") == ["aws", "lambda"]
+    assert key_terms("Excellent skills") == []
+
+
+def test_matched_requirement_must_be_in_the_cited_posting():
+    # Real: "Java" matched and cited to a React Native posting that never mentions Java.
+    c = claim("Java", quote="Languages: Java, Python")
+    check_claims([c], FULL_RESUME, [{"job_id": "1", "text": POSTING}])
+    assert c.issue == "none of the retrieved postings mention this requirement"
+
+
+def test_matched_quote_must_mention_the_requirement():
+    # Real: "Backend" <- "Node.js, Express, Kafka" (real quote, unrelated wording).
+    c = claim("React Native", quote="Languages: Java, Python")
+    check_claims([c], FULL_RESUME)
+    assert c.issue == "the quoted resume text doesn't mention this requirement"
+
+
+def test_fully_grounded_match_passes():
+    c = claim("React Native", quote="React Native (Expo)")
+    check_claims([c], FULL_RESUME)
+    assert c.issue is None
+
+
+def test_missing_item_the_resume_has_is_a_contradiction():
+    # Real: "AWS", "Docker", "Python" listed as missing for a resume listing all three.
+    c = claim("AWS", kind="missing")
+    check_claims([c], FULL_RESUME)
+    assert c.issue == "listed as missing, but the resume mentions it"
+
+
+def test_partly_covered_missing_item_stays_missing():
+    c = claim("AWS Lambda", kind="missing")  # resume has AWS, not Lambda
+    check_claims([c], FULL_RESUME)
+    assert c.issue is None
+
+
+def test_missing_item_must_be_in_the_cited_posting():
+    c = claim("Kubernetes", kind="missing")
+    check_claims([c], FULL_RESUME)
+    assert c.issue == "none of the retrieved postings mention this requirement"
+
+
+def test_vague_requirement_is_rejected():
+    c = claim("Strong skills", kind="missing")
+    check_claims([c], FULL_RESUME)
+    assert c.issue == "too vague to check against the posting"
+
+
+def test_parse_response_routes_failed_missing_items_to_unverified():
+    chunks = [{"job_id": "1", "job_posting_url": None, "text": POSTING}]
+    raw = answer(missing=[("AWS", 1), ("TypeScript", 1)])
+    result = parse_response(raw, chunks, resume_text=FULL_RESUME)
+    assert [c.requirement for c in result.missing] == ["TypeScript"]
+    assert [(c.requirement, c.claimed_as) for c in result.unverified] == [("AWS", "missing")]
+
+
+def test_wrong_citation_is_repaired_to_the_posting_that_mentions_it():
+    # Real: "TypeScript" matched and cited to [2]; posting [5] is the one asking for it.
+    other = {"job_id": "5", "job_posting_url": "https://x/5", "text": "Experience with Node.js and TypeScript."}
+    c = claim("TypeScript", quote="AWS, TypeScript", excerpt="A React Native role.")
+    check_claims([c], FULL_RESUME + ", TypeScript", [{"job_id": "1", "text": "A React Native role."}, other])
+    assert c.issue is None and c.recited
+    assert c.job_id == "5" and c.job_posting_url == "https://x/5"

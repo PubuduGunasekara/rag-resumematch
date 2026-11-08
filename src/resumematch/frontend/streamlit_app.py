@@ -123,38 +123,46 @@ if uploaded_file is not None:
             st.markdown(f"**[{i}]** {link}{company} · matched by: {', '.join(posting['matched_sections'])}")
 
     st.subheader("Matched")
-    st.caption("Each match quotes the resume, and that quote was checked to appear in the resume verbatim.")
+    st.caption(
+        "Each match was checked in code: the quoted text appears in the resume, it mentions the "
+        "requirement, and the requirement appears in the cited posting."
+    )
     if not result.matched:
         st.write("No verified matches.")
     for claim in result.matched:
         with st.container(border=True):
             st.markdown(f"**{claim.requirement}**")
             st.markdown(f"Resume: “{claim.resume_evidence}”")
-            st.caption(f"Required by posting `{claim.job_id}`")
+            st.caption(f"Required by posting `{claim.job_id}`" + (" (citation corrected by check)" if claim.recited else ""))
             if claim.job_posting_url:
                 st.markdown(f"[View posting ↗]({claim.job_posting_url})")
             with st.expander("Posting excerpt"):
                 st.text(claim.supporting_excerpt)
 
-    if result.unverified:
-        with st.expander(f"Claimed by the model but not found in the resume ({len(result.unverified)})"):
-            st.caption(
-                "The model said these were matched, but the resume text it quoted isn't in the "
-                "resume, so they're not counted as matches."
-            )
-            for claim in result.unverified:
-                quote = f" (quoted: “{claim.resume_evidence}”)" if claim.resume_evidence else " (empty quote)"
-                st.markdown(f"- {claim.requirement}{quote} · posting `{claim.job_id}`")
 
     st.subheader("Missing")
+    st.caption("Each gap was checked: the cited posting mentions it, and the resume doesn't.")
+    if not result.missing:
+        st.write("No verified gaps.")
     for claim in result.missing:
         with st.container(border=True):
             st.markdown(f"**{claim.requirement}**")
-            st.caption(f"Required by posting `{claim.job_id}` — not evidenced in resume")
+            st.caption(f"Required by posting `{claim.job_id}` — not evidenced in resume"
+                       + (" (citation corrected by check)" if claim.recited else ""))
             if claim.job_posting_url:
                 st.markdown(f"[View posting ↗]({claim.job_posting_url})")
 
+    if result.unverified:
+        with st.expander(f"Model claims that failed verification ({len(result.unverified)})"):
+            st.caption("Not counted above. Each line says what the model claimed and which check it failed.")
+            for claim in result.unverified:
+                quote = f" — quoted “{claim.resume_evidence}”" if claim.resume_evidence else ""
+                st.markdown(
+                    f"- **{claim.requirement}** (claimed {claim.claimed_as}{quote}): {claim.issue} · posting `{claim.job_id}`"
+                )
+
     st.subheader("Summary")
+    st.caption("Written by the model and not verified; the checked lists above take precedence.")
     st.write(result.overall_summary)
 
     with st.expander("Raw model output (debugging)"):

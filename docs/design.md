@@ -187,14 +187,51 @@ enforced by either model; salvage turns a crash into an answer whose
 MISSING list may be empty. (3) Verification proves a quote is real, not
 that it supports the claim.
 
-**Next (prototyped, not yet adopted): constrained decoding.** Ollama's
-`format` parameter accepts a JSON schema and constrains generation to
-it token by token. Prototype on llama3.2:3b, 4 runs: 4/4 valid, list
-caps (maxItems 8) enforced every time, excerpt numbers in range by
-construction (integer min/max), 31/31 quotes verified, no truncation,
-16-37 s. Remaining issues are reasoning quality, not format: irrelevant
-quotes (Agile <- "Concepts: ...Unit Testing") and skills listed as
-MISSING that the resume has (JavaScript, PostgreSQL).
+**Change 3 (adopted) -- constrained decoding.** The hand-parsed text
+format is gone. Ollama's `format` parameter takes a JSON Schema
+(`gap_analysis.response_schema`) and compiles it into a grammar that
+constrains generation token by token, so the model can only emit:
+valid JSON; `matched` / `missing` lists of at most 8 items; an `excerpt`
+integer between 1 and the number of retrieved chunks (an out-of-range
+citation is impossible to generate); required fields present; strings
+capped at 150 chars (stops runaway text). Truthfulness is still the
+code's job: `resume_quote` is verified against the resume exactly as
+before. The salvage path was removed (half a JSON object can't be
+salvaged, and the caps make truncation unlikely); the one retry stays
+as a safety net.
+
+Why this is the right layer: prompts *request* a format; a grammar
+*enforces* it. Every format failure we measured (missing `[N]`, `- None`
+bullets, ignoring the 8-line limit, looping to 40+ claims, running into
+the token cap) is a shape problem, and shape is exactly what a grammar
+controls.
+
+| llama3.2:3b, dummy resume | usable | first-attempt | avg time | items |
+|---|---|---|---|---|
+| text format + verification + retry | 7/8 | 4/8 | 32 s | 3-47 matched, 0-37 missing |
+| JSON schema (constrained) | **8/8** | **8/8** | **12 s** | 6-8 matched, 8 missing |
+
+Sample constrained run: matched React, Java, Spring Boot, Linux,
+Docker, Git, AWS, each quoting the real resume line; the verifier moved
+one claim ("Full Stack Java Developer", "evidenced" by a quote copied
+from the job posting) to unverified.
+
+llama3.1:8b with the schema: 4/4 usable on the first attempt, 29 s avg
+(was 5/8 and 197 s with the text format). But it still games the
+verifier with real-but-irrelevant quotes: "Oracle DB" and "PostgreSQL DB"
+both "evidenced" by "Backend: Spring Boot, Node.js, Express" (the
+resume's PostgreSQL is further along that same line, so even the right
+answer had the wrong quote). On this resume, 3B's matches were the more
+accurate of the two, at under half the latency -- which also favours
+the CPU-only portfolio deployment. Not yet measured: 3B on a CPU-only
+host, and either model across several resumes.
+
+What constrained decoding does NOT fix -- reasoning quality: MISSING
+can list requirements the resume partly covers ("C++ and GoLang" when
+the resume has C++; "Cloud and AWS Administration" alongside an AWS
+match), and a real quote can still be irrelevant. Candidates for a
+code-side check: flag a MISSING item whose key terms appear verbatim in
+the resume.
 
 ## Dataset
 
@@ -248,11 +285,12 @@ README, not committed (see `.gitignore`).
   vocabulary, guard rails, 0 false corrections on the clean test resume,
   corrections shown in the UI with an on/off toggle, measured by
   `scripts/eval_query_correction.py`.
-- **Partly resolved — gap-analysis over-claiming and format drift**:
-  see "Generating the gap analysis" above. Matches are now verified
-  against the resume and drift is retried/salvaged, but both local
-  models ignore length limits and produce irrelevant-but-real quotes.
-  Constrained decoding (JSON schema) is prototyped and is the planned fix.
+- **Resolved — format drift / output length**: constrained decoding
+  (JSON schema), see "Generating the gap analysis" above. 8/8 runs
+  usable on the first attempt with llama3.2:3b.
+- **Partly resolved — over-claiming**: matches must quote the resume
+  and the quote is verified in code. Open: MISSING items the resume
+  partly covers, and real-but-irrelevant quotes (reasoning quality).
 - **Resolved — resume truncation**: the resume is now searched as
   token-bounded sections fused with RRF (see "Why the resume is searched
   as several queries" above).

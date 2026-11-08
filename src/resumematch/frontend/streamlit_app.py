@@ -121,12 +121,6 @@ if uploaded_file is not None:
             link = f"[{posting['title']}]({posting['job_posting_url']})" if posting["job_posting_url"] else posting["title"]
             st.markdown(f"**[{i}]** {link} · matched by: {', '.join(posting['matched_sections'])}")
 
-    if result.truncated:
-        st.warning(
-            "The model's answer ran past its length limit and was cut off. Only complete "
-            "lines are shown, so the Missing list and summary may be incomplete."
-        )
-
     st.subheader("Matched")
     st.caption("Each match quotes the resume, and that quote was checked to appear in the resume verbatim.")
     if not result.matched:
@@ -145,10 +139,10 @@ if uploaded_file is not None:
         with st.expander(f"Claimed by the model but not found in the resume ({len(result.unverified)})"):
             st.caption(
                 "The model said these were matched, but the resume text it quoted isn't in the "
-                "resume (or it gave no quote), so they're not counted as matches."
+                "resume, so they're not counted as matches."
             )
             for claim in result.unverified:
-                quote = f" (quoted: “{claim.resume_evidence}”)" if claim.resume_evidence else " (no quote)"
+                quote = f" (quoted: “{claim.resume_evidence}”)" if claim.resume_evidence else " (empty quote)"
                 st.markdown(f"- {claim.requirement}{quote} · posting `{claim.job_id}`")
 
     st.subheader("Missing")

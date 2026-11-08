@@ -1,13 +1,19 @@
-"""Tests for gap_analysis.parse_response — the LLM-output parser, which
-docs/design.md flags as the riskiest piece (local models drift from a
-requested format more than a hosted frontier model would). Written
-against a hand-constructed "model response" string so these don't
-depend on Ollama actually being installed.
+"""Tests for gap_analysis: the JSON parser, resume-evidence verification,
+the response schema, and the retry. Written against hand-constructed
+model responses so they don't need Ollama running.
 """
+
+import json
 
 import pytest
 
-from resumematch.generation.gap_analysis import evidence_in_resume, parse_response, run_gap_analysis
+from resumematch.generation.gap_analysis import (
+    MAX_ITEMS,
+    evidence_in_resume,
+    parse_response,
+    response_schema,
+    run_gap_analysis,
+)
 from resumematch.generation.ollama_client import GenerationTruncatedError
 
 
@@ -18,90 +24,85 @@ def make_chunks():
     ]
 
 
-def test_parses_matched_and_missing_with_citations():
-    raw = """MATCHED:
-- 3+ years Python experience -- evidenced by resume, required by [1]
-
-MISSING:
-- Kubernetes experience -- not evidenced anywhere in the resume excerpts [2]
-
-SUMMARY:
-Strong Python match, missing Kubernetes experience.
-"""
-    result = parse_response(raw, make_chunks())
-
-    assert len(result.matched) == 1
-    assert result.matched[0].job_id == "1"
-    assert result.matched[0].job_posting_url == "https://x/1"
-    assert "Python" in result.matched[0].requirement
-
-    assert len(result.missing) == 1
-    assert result.missing[0].job_id == "2"
-
-    assert "Kubernetes" in result.overall_summary
-
-
-def test_missing_headers_raises_with_raw_response_included():
-    with pytest.raises(ValueError) as exc_info:
-        parse_response("not the right format at all", make_chunks())
-    assert "not the right format at all" in str(exc_info.value)
-
-
-def test_out_of_range_citation_raises():
-    raw = """MATCHED:
-- something -- required by [99]
-
-SUMMARY:
-n/a
-"""
-    with pytest.raises(ValueError) as exc_info:
-        parse_response(raw, make_chunks())
-    assert "out of range" in str(exc_info.value)
-
-
-def test_missing_citation_marker_raises():
-    raw = """MATCHED:
-- something with no bracket reference at all
-
-SUMMARY:
-n/a
-"""
-    with pytest.raises(ValueError) as exc_info:
-        parse_response(raw, make_chunks())
-    assert "No [N] citation" in str(exc_info.value)
-
-
-# --- Verified resume evidence (MATCHED claims must quote the resume) ---
-
 RESUME = """TECHNICAL SKILLS
 Languages: Java, Python, SQL
 Backend: Spring Boot,
 Node.js"""
 
-NEW_FORMAT = """MATCHED:
-- Python programming | resume: "Languages: Java, Python" | [1]
-- Kubernetes | resume: "Deployed services on Kubernetes" | [2]
-- Backend frameworks | [1]
 
-MISSING:
-- Kubernetes | [2]
+def answer(matched=(), missing=(), summary="ok") -> str:
+    return json.dumps({
+        "matched": [{"requirement": r, "resume_quote": q, "excerpt": n} for r, q, n in matched],
+        "missing": [{"requirement": r, "excerpt": n} for r, n in missing],
+        "summary": summary,
+    })
 
-SUMMARY:
-Good Python fit.
-"""
 
+GOOD = answer(
+    matched=[("Python programming", "Languages: Java, Python", 1),
+             ("Kubernetes", "Deployed services on Kubernetes", 2)],  # quote not in RESUME
+    missing=[("Kubernetes", 2)],
+    summary="Good Python fit, no Kubernetes.",
+)
+
+
+# --- Citations resolve to the real retrieved record ---
+
+def test_excerpt_numbers_resolve_to_retrieved_postings():
+    result = parse_response(GOOD, make_chunks())
+    assert result.matched[0].job_id == "1"
+    assert result.matched[0].job_posting_url == "https://x/1"
+    assert result.matched[0].supporting_excerpt == "Requires 3+ years Python."
+    assert result.missing[0].job_id == "2"
+    assert "Kubernetes" in result.overall_summary
+
+
+def test_out_of_range_excerpt_raises():
+    with pytest.raises(ValueError, match="out of range"):
+        parse_response(answer(missing=[("Go", 99)]), make_chunks())
+
+
+def test_invalid_json_raises_with_raw_response_included():
+    with pytest.raises(ValueError) as exc_info:
+        parse_response("not json at all", make_chunks())
+    assert "not json at all" in str(exc_info.value)
+
+
+def test_missing_field_raises():
+    with pytest.raises(ValueError):
+        parse_response(json.dumps({"matched": [], "summary": "x"}), make_chunks())  # no "missing"
+    with pytest.raises(ValueError, match="Malformed item"):
+        parse_response(json.dumps({"matched": [{"requirement": "x"}], "missing": []}), make_chunks())
+
+
+def test_empty_lists_are_valid():
+    result = parse_response(answer(summary="No overlap."), make_chunks(), resume_text=RESUME)
+    assert result.matched == [] and result.missing == [] and result.unverified == []
+
+
+def test_duplicate_requirements_are_collapsed():
+    raw = answer(missing=[("Kubernetes", 2), ("kubernetes", 2), ("Go", 1)])
+    assert [c.requirement for c in parse_response(raw, make_chunks()).missing] == ["Kubernetes", "Go"]
+
+
+# --- Matches must quote the resume, verified in code ---
 
 def test_quote_found_in_resume_is_a_verified_match():
-    result = parse_response(NEW_FORMAT, make_chunks(), resume_text=RESUME)
+    result = parse_response(GOOD, make_chunks(), resume_text=RESUME)
     assert [c.requirement for c in result.matched] == ["Python programming"]
     assert result.matched[0].resume_evidence == "Languages: Java, Python"
 
 
-def test_invented_or_missing_quote_goes_to_unverified_not_matched():
+def test_quote_not_in_resume_goes_to_unverified_not_matched():
     # The real failure: a 3B model "quoted" job-posting text as resume evidence.
-    result = parse_response(NEW_FORMAT, make_chunks(), resume_text=RESUME)
-    assert [c.requirement for c in result.unverified] == ["Kubernetes", "Backend frameworks"]
-    assert result.unverified[1].resume_evidence is None
+    result = parse_response(GOOD, make_chunks(), resume_text=RESUME)
+    assert [c.requirement for c in result.unverified] == ["Kubernetes"]
+
+
+def test_empty_quote_is_unverified():
+    raw = answer(matched=[("Python", "  ", 1)])
+    result = parse_response(raw, make_chunks(), resume_text=RESUME)
+    assert result.matched == [] and len(result.unverified) == 1
 
 
 def test_evidence_matching_ignores_case_punctuation_and_line_wraps():
@@ -110,53 +111,49 @@ def test_evidence_matching_ignores_case_punctuation_and_line_wraps():
     assert not evidence_in_resume("   ", RESUME)
 
 
-def test_none_bullet_means_empty_list():
-    raw = "MATCHED:\n- none\n\nMISSING:\n- None.\n\nSUMMARY:\nNo overlap.\n"
-    result = parse_response(raw, make_chunks(), resume_text=RESUME)
-    assert result.matched == [] and result.missing == [] and result.unverified == []
+# --- The schema used for constrained decoding ---
+
+def test_schema_caps_lists_and_bounds_excerpts_to_what_was_retrieved():
+    schema = response_schema(num_excerpts=5)
+    matched = schema["properties"]["matched"]
+    assert matched["maxItems"] == MAX_ITEMS
+    assert matched["items"]["properties"]["excerpt"] == {"type": "integer", "minimum": 1, "maximum": 5}
+    assert set(matched["items"]["required"]) == {"requirement", "resume_quote", "excerpt"}
+    assert schema["properties"]["missing"]["items"]["properties"]["excerpt"]["maximum"] == 5
 
 
-def test_markdown_bold_headers_are_accepted():
-    raw = "**MATCHED:**\n- Python | resume: \"Java, Python\" | [1]\n\n**SUMMARY:**\nok\n"
-    assert len(parse_response(raw, make_chunks(), resume_text=RESUME).matched) == 1
-
-
-# --- Retry with a format reminder ---
+# --- Retry ---
 
 class FakeClient:
     def __init__(self, responses):
         self.responses = list(responses)
-        self.prompts = []
+        self.calls = []
 
     def generate(self, prompt, **kwargs):
-        self.prompts.append(prompt)
+        self.calls.append((prompt, kwargs))
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
         return response
 
 
-def test_unusable_first_answer_is_retried_with_a_reminder():
-    client = FakeClient(["MATCHED:\n- Python with no citation\n\nSUMMARY:\nx", NEW_FORMAT])
+def test_schema_is_sent_to_the_model():
+    client = FakeClient([GOOD])
+    run_gap_analysis(RESUME, make_chunks(), client)
+    sent = client.calls[0][1]["schema"]
+    assert sent["properties"]["matched"]["items"]["properties"]["excerpt"]["maximum"] == 2
+
+
+def test_unusable_answer_is_retried_with_a_reminder():
+    client = FakeClient(["{not json", GOOD])
     result = run_gap_analysis(RESUME, make_chunks(), client)
     assert result.attempts == 2
-    assert len(result.matched) == 1
-    assert "could not be used" in client.prompts[1]
-    assert "No [N] citation" in client.prompts[1]  # the reminder names the actual problem
+    assert "could not be used" in client.calls[1][0]
 
 
-def test_truncated_output_keeps_complete_lines_without_retrying():
-    partial = 'MATCHED:\n- Python | resume: "Java, Python" | [1]\n- Kubern'
-    client = FakeClient([GenerationTruncatedError(partial, 1024)])
-    result = run_gap_analysis(RESUME, make_chunks(), client)
-    assert result.truncated and result.attempts == 1
-    assert [c.requirement for c in result.matched] == ["Python"]
-
-
-def test_truncated_output_with_nothing_usable_is_retried():
-    client = FakeClient([GenerationTruncatedError("MATCH", 1024), NEW_FORMAT])
-    result = run_gap_analysis(RESUME, make_chunks(), client)
-    assert result.attempts == 2 and not result.truncated
+def test_truncated_output_is_retried():
+    client = FakeClient([GenerationTruncatedError('{"matched": [{"requ', 1024), GOOD])
+    assert run_gap_analysis(RESUME, make_chunks(), client).attempts == 2
 
 
 def test_gives_up_after_max_attempts_with_the_last_error():

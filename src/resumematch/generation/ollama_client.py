@@ -28,7 +28,14 @@ class OllamaClient:
         self.host = host or os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         self.model = model or os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
 
-    def generate(self, prompt: str, temperature: float = 0.2, max_tokens: int = 800, num_ctx: int = 8192) -> str:
+    def generate(
+        self,
+        prompt: str,
+        temperature: float = 0.2,
+        max_tokens: int = 800,
+        num_ctx: int = 8192,
+        schema: dict | None = None,
+    ) -> str:
         """
         Calls POST {host}/api/generate (non-streaming) and returns the
         response text.
@@ -39,15 +46,24 @@ class OllamaClient:
         doesn't fit WITHOUT raising -- the resume could vanish from the
         prompt silently.
 
+        schema (a JSON Schema dict) turns on constrained decoding: Ollama
+        compiles it to a grammar and only lets the model emit tokens that
+        keep the output valid against it, so the response is always
+        schema-shaped JSON (list lengths, integer ranges and required
+        fields included) unless it is cut off by max_tokens.
+
         Raises:
             GenerationTruncatedError: output hit max_tokens (incomplete).
             requests.ConnectionError: if Ollama isn't running -- the UI
                 catches this and shows an "is Ollama running?" message.
         """
-        resp = requests.post(f"{self.host}/api/generate", json={
+        payload = {
             "model": self.model, "prompt": prompt, "stream": False,
             "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": num_ctx},
-        }, timeout=300)
+        }
+        if schema is not None:
+            payload["format"] = schema
+        resp = requests.post(f"{self.host}/api/generate", json=payload, timeout=300)
         resp.raise_for_status()
         body = resp.json()
         if body.get("done_reason") == "length":

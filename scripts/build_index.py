@@ -25,10 +25,11 @@ from dotenv import load_dotenv
 
 from resumematch.ingest.job_postings_loader import (
     download_dataset,
+    iter_company_descriptions,
     iter_job_postings,
     iter_posting_texts,
-    load_company_names,
 )
+from resumematch.preprocess.boilerplate import find_boilerplate
 from resumematch.preprocess.chunker import chunk_job_posting
 from resumematch.preprocess.query_correction import build_domain_vocabulary
 from resumematch.retrieval.embedder import Embedder
@@ -39,6 +40,9 @@ from resumematch.retrieval.vector_store import VectorStore
 # it's one ~15s streaming pass, and a small sample makes the corrector
 # "fix" real tech terms it hasn't seen (see query_correction.py).
 VOCAB_OUTPUT_PATH = Path("data/processed/domain_vocab.json")
+# Written for inspection/reproducibility: exactly which sentences were
+# stripped from postings as boilerplate (see preprocess/boilerplate.py).
+BOILERPLATE_OUTPUT_PATH = Path("data/processed/boilerplate_sentences.json")
 
 
 def main():
@@ -53,9 +57,16 @@ def main():
     persist_dir = os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db")
     embedding_model = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
 
-    print(f"Downloading dataset (requires KAGGLE_USERNAME/KAGGLE_KEY env vars)...")
+    print("Downloading dataset (requires KAGGLE_USERNAME/KAGGLE_KEY env vars)...")
     csv_dir = download_dataset()
-    company_names = load_company_names(csv_dir)  # not yet wired into chunk metadata — see docs/design.md TODO
+
+    # Boilerplate is learned from the FULL (de-duplicated) corpus even with
+    # --limit: "appears across >= 10 companies" is only meaningful at scale.
+    print("Finding boilerplate sentences across the full corpus...")
+    boilerplate = find_boilerplate(iter_company_descriptions(csv_dir))
+    BOILERPLATE_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    BOILERPLATE_OUTPUT_PATH.write_text(json.dumps(sorted(boilerplate), indent=0))
+    print(f"Found {len(boilerplate)} boilerplate sentences (written to {BOILERPLATE_OUTPUT_PATH}).")
 
     embedder = Embedder(model_name=embedding_model)
     store = VectorStore(persist_dir=persist_dir)
@@ -69,7 +80,7 @@ def main():
 
         all_chunks = []
         for posting in batch:
-            all_chunks.extend(chunk_job_posting(posting))
+            all_chunks.extend(chunk_job_posting(posting, boilerplate=boilerplate))
 
         if not all_chunks:
             continue

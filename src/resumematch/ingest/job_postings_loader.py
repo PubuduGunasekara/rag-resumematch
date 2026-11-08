@@ -16,6 +16,7 @@ rewrite at 10x scale" means never assuming the whole file fits in
 memory in the first place.
 """
 
+import hashlib
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,7 @@ class JobPosting:
     skills_desc: str | None
     company_id: str | None
     job_posting_url: str | None
+    company_name: str | None = None  # straight from postings.csv; shown in citations
 
 
 def download_dataset(dest_dir: str = "data/raw") -> Path:
@@ -57,7 +59,12 @@ def download_dataset(dest_dir: str = "data/raw") -> Path:
     return Path(kagglehub.dataset_download(DATASET_HANDLE))
 
 
-def iter_job_postings(csv_dir: Path, batch_size: int = 1000) -> Iterator[list[JobPosting]]:
+def _description_key(description: str) -> bytes:
+    """Identity of a posting's text, ignoring case and whitespace."""
+    return hashlib.blake2b(" ".join(description.lower().split()).encode(), digest_size=16).digest()
+
+
+def iter_job_postings(csv_dir: Path, batch_size: int = 1000, dedupe: bool = True) -> Iterator[list[JobPosting]]:
     """
     Yields batches of JobPosting so downstream chunking/embedding/
     indexing never holds the full 124k-row dataset in memory at once.
@@ -66,8 +73,14 @@ def iter_job_postings(csv_dir: Path, batch_size: int = 1000) -> Iterator[list[Jo
         csv_dir: directory returned by download_dataset (or wherever
             postings.csv already lives).
         batch_size: rows per yielded batch.
+        dedupe: skip a posting whose description (ignoring case and
+            whitespace) already appeared -- 12.9% of the corpus (16,015
+            postings) are exact copies, typically one recruiter reposting
+            the same text, which otherwise fill several retrieval slots
+            with the same job. The first job_id is kept for citations.
     """
     csv_path = csv_dir / "postings.csv"
+    seen: set[bytes] = set()
     for batch_df in pd.read_csv(csv_path, chunksize=batch_size):
         batch = []
         for _, row in batch_df.iterrows():
@@ -76,6 +89,11 @@ def iter_job_postings(csv_dir: Path, batch_size: int = 1000) -> Iterator[list[Jo
             skills_desc = row["skills_desc"] if pd.notna(row.get("skills_desc")) else None
             if not description.strip():
                 continue  # nothing retrievable here, skip rather than index empty text
+            if dedupe:
+                key = _description_key(description)
+                if key in seen:
+                    continue
+                seen.add(key)
             batch.append(JobPosting(
                 job_id=str(row["job_id"]),
                 title=str(row["title"]) if pd.notna(row["title"]) else "",
@@ -83,9 +101,27 @@ def iter_job_postings(csv_dir: Path, batch_size: int = 1000) -> Iterator[list[Jo
                 skills_desc=skills_desc,
                 company_id=str(row["company_id"]) if pd.notna(row.get("company_id")) else None,
                 job_posting_url=str(row["job_posting_url"]) if pd.notna(row.get("job_posting_url")) else None,
+                company_name=str(row["company_name"]) if pd.notna(row.get("company_name")) else None,
             ))
         if batch:
             yield batch
+
+
+def iter_company_descriptions(csv_dir: Path, dedupe: bool = True, batch_size: int = 20000) -> Iterator[tuple[str | None, str]]:
+    """(company_name, description) for every posting, with the SAME
+    de-duplication as iter_job_postings -- feeds find_boilerplate, which
+    must count each distinct posting once."""
+    seen: set[bytes] = set()
+    for batch_df in pd.read_csv(csv_dir / "postings.csv", usecols=["company_name", "description"], chunksize=batch_size):
+        for company, description in zip(batch_df["company_name"], batch_df["description"]):
+            if not isinstance(description, str) or not description.strip():
+                continue
+            if dedupe:
+                key = _description_key(description)
+                if key in seen:
+                    continue
+                seen.add(key)
+            yield (company if isinstance(company, str) else None), description
 
 
 def iter_posting_texts(csv_dir: Path, batch_size: int = 20000) -> Iterator[str]:
@@ -96,12 +132,3 @@ def iter_posting_texts(csv_dir: Path, batch_size: int = 20000) -> Iterator[str]:
     for batch_df in pd.read_csv(csv_dir / "postings.csv", usecols=columns, chunksize=batch_size):
         for column in columns:
             yield from batch_df[column].dropna()
-
-
-def load_company_names(csv_dir: Path) -> dict[str, str]:
-    """company_id -> company name, for display in citations ("Posting at Acme Corp")."""
-    companies_path = csv_dir / "companies" / "companies.csv"
-    if not companies_path.exists():
-        return {}
-    df = pd.read_csv(companies_path, usecols=["company_id", "name"])
-    return {str(row["company_id"]): row["name"] for _, row in df.iterrows()}

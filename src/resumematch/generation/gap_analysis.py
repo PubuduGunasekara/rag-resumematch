@@ -114,7 +114,7 @@ def response_schema(num_excerpts: int) -> dict:
 
 def build_prompt(resume_text: str, retrieved_chunks: list[dict]) -> str:
     chunks_text = "\n\n".join(
-        f"[{i+1}] ({c.get('title', '')}, job_id={c['job_id']}) {c['text']}"
+        f"[{i+1}] ({c.get('title', '')} at {c.get('company_name') or 'unknown company'}, job_id={c['job_id']}) {c['text']}"
         for i, c in enumerate(retrieved_chunks)
     )
     return PROMPT_TEMPLATE.format(resume_text=resume_text, retrieved_chunks=chunks_text)

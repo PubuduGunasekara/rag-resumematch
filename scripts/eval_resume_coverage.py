@@ -51,11 +51,14 @@ def main():
         # Old behaviour, but deduplicated to postings so both methods
         # are compared on the same unit.
         hits = store.query(embedder.embed([text])[0], top_k=per_section_k)
-        return fuse_rankings([("WHOLE RESUME", hits)], top_k=args.top_k)
+        return fuse_rankings([("WHOLE RESUME", hits)], top_k=args.top_k, max_per_company=None)
 
     def sectioned(text: str) -> list[dict]:
         sections = split_resume(text, embedder.count_tokens, max_tokens=budget)
-        return retrieve_for_resume(sections, embedder, store, top_k=args.top_k, per_section_k=per_section_k)
+        return retrieve_for_resume(
+            sections, embedder, store, top_k=args.top_k, per_section_k=per_section_k,
+            max_per_company=config["retrieval"]["max_per_company"],
+        )
 
     def overlap(a: list[dict], b: list[dict]) -> float:
         return len({r["job_id"] for r in a} & {r["job_id"] for r in b}) / max(len(a), 1)

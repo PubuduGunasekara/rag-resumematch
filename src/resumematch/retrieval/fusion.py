@@ -22,6 +22,12 @@ Why rank POSTINGS, not chunks: chunk-level top-k let one long posting
 (or one company's repeated boilerplate) fill every slot. Grouping by
 job_id first means top_k results are top_k distinct postings, each
 represented by its single best-matching chunk.
+
+Why also cap postings per COMPANY: distinct job_ids can still be the
+same job -- one staffing agency (CodeMonk) posted five ~55%-identical
+"Senior Software Engineer" variants that filled half the top 10. Exact
+de-duplication at index time can't catch partial copies; a per-company
+cap (default 2) keeps the results about different employers.
 """
 
 from collections import defaultdict
@@ -33,12 +39,16 @@ from resumematch.retrieval.vector_store import VectorStore
 RRF_K = 60
 
 
-def fuse_rankings(per_section_hits: list[tuple[str, list[dict]]], top_k: int) -> list[dict]:
+def fuse_rankings(
+    per_section_hits: list[tuple[str, list[dict]]], top_k: int, max_per_company: int | None = 2
+) -> list[dict]:
     """
     Input:
         per_section_hits: [(section heading, chunk hits from
             VectorStore.query, closest first), ...]
         top_k: number of distinct postings to return.
+        max_per_company: at most this many postings from one company
+            (postings without a company name are never capped). None = no cap.
     Output:
         Up to top_k chunk dicts (same shape as VectorStore.query), one
         per posting -- that posting's closest chunk across all sections --
@@ -64,7 +74,15 @@ def fuse_rankings(per_section_hits: list[tuple[str, list[dict]]], top_k: int) ->
 
     ranked = sorted(scores, key=lambda j: (-scores[j], best_chunk[j]["distance"]))
     results = []
-    for job_id in ranked[:top_k]:
+    per_company: dict[str, int] = defaultdict(int)
+    for job_id in ranked:
+        if len(results) == top_k:
+            break
+        company = best_chunk[job_id].get("company_name")
+        if company and max_per_company is not None:
+            if per_company[company] >= max_per_company:
+                continue
+            per_company[company] += 1
         results.append({
             **best_chunk[job_id],
             "fusion_score": scores[job_id],
@@ -79,6 +97,7 @@ def retrieve_for_resume(
     store: VectorStore,
     top_k: int = 5,
     per_section_k: int = 30,
+    max_per_company: int | None = 2,
 ) -> list[dict]:
     """
     Embeds every section in one batch, retrieves per_section_k chunks
@@ -95,4 +114,4 @@ def retrieve_for_resume(
         (section.heading, store.query(vector, top_k=per_section_k))
         for section, vector in zip(sections, vectors)
     ]
-    return fuse_rankings(per_section_hits, top_k=top_k)
+    return fuse_rankings(per_section_hits, top_k=top_k, max_per_company=max_per_company)

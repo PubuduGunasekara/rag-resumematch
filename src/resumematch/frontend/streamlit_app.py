@@ -119,7 +119,8 @@ if uploaded_file is not None:
         )
         for i, posting in enumerate(pipeline_result.retrieved, start=1):
             link = f"[{posting['title']}]({posting['job_posting_url']})" if posting["job_posting_url"] else posting["title"]
-            st.markdown(f"**[{i}]** {link} · matched by: {', '.join(posting['matched_sections'])}")
+            company = f" at {posting['company_name']}" if posting.get("company_name") else ""
+            st.markdown(f"**[{i}]** {link}{company} · matched by: {', '.join(posting['matched_sections'])}")
 
     st.subheader("Matched")
     st.caption("Each match quotes the resume, and that quote was checked to appear in the resume verbatim.")

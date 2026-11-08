@@ -233,6 +233,86 @@ match), and a real quote can still be irrelevant. Candidates for a
 code-side check: flag a MISSING item whose key terms appear verbatim in
 the resume.
 
+## Chunking job postings: sentences, boilerplate, duplicates
+
+Reading real chunks (as this doc said to) turned up three problems.
+Measured on the whole corpus first, so the fixes target real patterns:
+
+- The old chunker split on whitespace and re-joined with spaces,
+  throwing away the line breaks that 95.7% of descriptions have, so
+  bullets ran together and chunks were cut mid-sentence. 53% of
+  descriptions also have sentences glued with no space ("oil
+  baths.Use standard").
+- 12.9% of postings (16,015) are exact copies of an earlier posting's
+  description -- one recruiter reposting the same text. Six of them
+  ("Junior data scientist/java programmer" variants) were in the test
+  resume's top 10.
+- Legal and template text (EEO statements, accommodation notices,
+  benefits blurbs, "this job description is subject to change") was in
+  26.9% of chunks. It embeds close to everything and wins retrieval
+  slots from real requirements.
+
+Fixes (`preprocess/chunker.py`, `preprocess/boilerplate.py`,
+`ingest/job_postings_loader.py`, `retrieval/fusion.py`):
+
+1. **Sentence-aware chunking.** Split on line breaks, bullets and
+   sentence ends (re-inserting the missing space in glued sentences);
+   pack whole sentences into chunks of <= 300 words; overlap is whole
+   trailing sentences (~50 words); a short tail is folded into the
+   previous chunk; a skills_desc under 40 words ("Azure") is appended
+   to the description instead of becoming its own 1-word chunk.
+   Packing tracks sentence positions, not text, so a repeated sentence
+   is never mistaken for overlap and dropped (an early version had
+   exactly that bug).
+2. **Boilerplate removal, two rules.** (a) Frequency, learned from the
+   de-duplicated corpus: a sentence in >= 20 postings from >= 10
+   *different companies*. Cross-company is the point: a sentence
+   repeated within one company is usually its real duties and is
+   kept. (b) A short legal-language pattern (EEO, non-discrimination,
+   accommodation, E-Verify) for statements that vary by company name.
+   Both rules exempt sentences that state a requirement (degree,
+   experience, "must be able to", lifting/weight). That exemption list
+   grew from reading the detected list: the first run flagged "The
+   employee must occasionally lift and/or move up to 25 pounds" and a
+   standard supervisory-duties sentence -- real requirements, now kept.
+   The detected list is written to
+   `data/processed/boilerplate_sentences.json` (402 sentences) so
+   exactly what was removed can be inspected.
+3. **Exact-duplicate postings are skipped** at index time (first
+   job_id kept for citations).
+4. **At most 2 postings per company** in retrieval results. Partial
+   copies survive exact de-duplication: one staffing agency (CodeMonk)
+   had five ~55%-identical "Senior Software Engineer" postings; without
+   the cap it took 6 of the test resume's top 10, with it 2. Company
+   names are now in chunk metadata, the prompt and the UI ("Senior
+   Software Engineer at CodeMonk").
+
+Measured on the 20k dev index (same `--limit`; "after" is the first 20k
+*distinct* postings):
+
+| | before | after |
+|---|---|---|
+| chunks containing EEO/accommodation text | 26.9% | **3.0%** |
+| chunks ending at a sentence boundary | 25.9% | **66.6%** |
+| chunks under 40 words | 390 | **221** |
+| chunks whose opening repeats 10+ times | 4,788 | 2,970 |
+| chunks per posting | 2.39 | 2.17 |
+
+Retrieval for the test resume: the duplicate "Junior data scientist"
+postings are gone; new in the top 10 are "Mobile Developer - React
+Native" (matched by EXPERIENCE, PROJECTS and SKILLS together) and
+"React Native Developer" -- React Native being the resume's main mobile
+stack. The skills-swap sensitivity check is unchanged (0.60).
+
+What's left, and why: the remaining short chunks are postings whose
+entire description is short (nothing to merge into). "Ending at a
+sentence boundary" is 66.6%, not 100%, mostly because bullet lines
+often have no closing punctuation, not because of mid-sentence cuts.
+Residual EEO text is mostly inside long run-on lines that also contain
+requirements, which the exemption deliberately keeps. One company's own
+"About us" paragraph repeated across its postings is still indexed --
+the frequency rule can't tell it from real duties.
+
 ## Dataset
 
 **LinkedIn Job Postings (2023-2024)**, Kaggle, uploaded by `arshkon`
@@ -275,11 +355,6 @@ README, not committed (see `.gitignore`).
   gap-analysis parsing). Unit tests pass for everything that doesn't
   require the real dataset, a local embedding model, or a running
   Ollama instance (see "What's verified vs. not yet" below).
-- Chunk-boundary quality still hasn't been verified against *real*
-  posting text (only the hand-written fixtures in
-  `tests/test_chunker.py`). **Action**: once `build_index.py` runs
-  against the real dataset, print and read actual chunks from 5-10
-  real postings before trusting them at scale.
 - **Resolved**: query correction checked against a real resume and
   reworked (see "The query-correction tie-in" above): full-corpus
   vocabulary, guard rails, 0 false corrections on the clean test resume,
@@ -294,15 +369,13 @@ README, not committed (see `.gitignore`).
 - **Resolved — resume truncation**: the resume is now searched as
   token-bounded sections fused with RRF (see "Why the resume is searched
   as several queries" above).
-- **Open — posting boilerplate**: on the first 2k postings, 536/4,180
-  chunks (13%) contain equal-opportunity text and one company's "About
-  us" chunk appears 29 times verbatim. These can win retrieval over real
-  requirements and fill every top-k slot. Also: chunks are cut
-  mid-sentence and 13 chunks are under 30 words.
-- `company_id` -> company name (via `companies.csv`) is loaded in
-  `job_postings_loader.load_company_names` but not yet wired into
-  chunk metadata or the Streamlit display — nice-to-have for citation
-  readability ("Posting at Acme Corp" vs. a bare job_id), not required.
+- **Resolved — chunking / boilerplate / duplicates**: see "Chunking job
+  postings" above. EEO text 26.9% -> 3.0% of chunks; duplicate postings
+  skipped; at most 2 postings per company in results. Open: one
+  company's repeated "About us" text is still indexed.
+- **Resolved**: company names are in chunk metadata, the LLM prompt and
+  the UI (straight from postings.csv's company_name column; the separate
+  companies.csv join was removed as unnecessary).
 - Firewall/networking setup for the GCP endpoint (opening port 8501
   publicly) isn't scripted yet — needs to happen during Phase 4 and be
   tested well before Dec 6, not discovered for the first time on

@@ -42,6 +42,7 @@ class VectorStore:
                 "job_id": c.job_id, "section": c.section,
                 "job_posting_url": c.job_posting_url or "",
                 "title": c.title,
+                "company_name": c.company_name or "",
             } for c in chunks],
         )
 
@@ -49,7 +50,7 @@ class VectorStore:
         """
         Output: list of dicts, ordered by relevance (closest first), each:
             {"text": str, "distance": float, "job_id": str, "section": str,
-             "job_posting_url": str | None, "title": str}
+             "job_posting_url": str | None, "title": str, "company_name": str | None}
         This is the shape the Streamlit UI and gap_analysis both consume
         directly — no second lookup needed to render a citation.
         """
@@ -69,6 +70,7 @@ class VectorStore:
                 "section": meta["section"],
                 "job_posting_url": meta["job_posting_url"] or None,
                 "title": meta["title"],
+                "company_name": meta.get("company_name") or None,
             })
         return out
 

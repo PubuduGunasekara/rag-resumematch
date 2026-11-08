@@ -3,9 +3,9 @@
 from resumematch.retrieval.fusion import RRF_K, fuse_rankings
 
 
-def hit(job_id: str, distance: float, chunk: int = 0) -> dict:
+def hit(job_id: str, distance: float, chunk: int = 0, company: str | None = None) -> dict:
     return {"job_id": job_id, "distance": distance, "text": f"{job_id} chunk {chunk}",
-            "section": "description", "job_posting_url": None, "title": job_id}
+            "section": "description", "job_posting_url": None, "title": job_id, "company_name": company}
 
 
 def test_posting_found_by_several_sections_beats_one_strong_match():
@@ -50,3 +50,16 @@ def test_matched_sections_are_reported_best_rank_first():
 def test_top_k_limits_postings():
     hits = [("S", [hit(str(i), i / 10) for i in range(10)])]
     assert len(fuse_rankings(hits, top_k=3)) == 3
+
+
+def test_postings_per_company_are_capped():
+    hits = [("SKILLS", [hit("a1", 0.1, company="CodeMonk"), hit("a2", 0.11, company="CodeMonk"),
+                        hit("a3", 0.12, company="CodeMonk"), hit("b", 0.3, company="Other"),
+                        hit("c", 0.4)])]
+    ranked = [r["job_id"] for r in fuse_rankings(hits, top_k=4, max_per_company=2)]
+    assert ranked == ["a1", "a2", "b", "c"]  # a3 skipped; no-company "c" never capped
+
+
+def test_company_cap_can_be_disabled():
+    hits = [("S", [hit(f"a{i}", i / 10, company="X") for i in range(4)])]
+    assert len(fuse_rankings(hits, top_k=4, max_per_company=None)) == 4

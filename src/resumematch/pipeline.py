@@ -101,6 +101,7 @@ def run_pipeline(
         store,
         top_k=config["retrieval"]["top_k"],
         per_section_k=config["retrieval"]["per_section_k"],
+        max_per_company=config["retrieval"]["max_per_company"],
     )
 
     client = OllamaClient()

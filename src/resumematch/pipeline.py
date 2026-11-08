@@ -112,6 +112,7 @@ def run_pipeline(
         client=client,
         temperature=config["generation"]["temperature"],
         max_tokens=config["generation"]["max_tokens"],
+        num_ctx=config["generation"]["num_ctx"],
     )
     return PipelineResult(
         gap_analysis=gap_analysis, corrections=corrections, sections=sections, retrieved=retrieved

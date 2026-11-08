@@ -12,6 +12,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import requests
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -80,6 +81,21 @@ if uploaded_file is not None:
                 "`python scripts/build_index.py` before using this app."
             )
             st.stop()
+        except requests.ConnectionError:
+            st.error(
+                "Couldn't reach the local LLM (Ollama). Is it running? "
+                "Start it with `ollama serve` (or `brew services start ollama`)."
+            )
+            st.stop()
+        except ValueError as error:
+            # parse failure / truncated output, after the format-reminder retry
+            st.error(
+                "The language model's answer wasn't in a usable format, even after a retry. "
+                "Upload the resume again to re-run it."
+            )
+            with st.expander("Details"):
+                st.text(str(error))
+            st.stop()
     result = pipeline_result.gap_analysis
 
     if apply_correction:
@@ -105,14 +121,35 @@ if uploaded_file is not None:
             link = f"[{posting['title']}]({posting['job_posting_url']})" if posting["job_posting_url"] else posting["title"]
             st.markdown(f"**[{i}]** {link} · matched by: {', '.join(posting['matched_sections'])}")
 
+    if result.truncated:
+        st.warning(
+            "The model's answer ran past its length limit and was cut off. Only complete "
+            "lines are shown, so the Missing list and summary may be incomplete."
+        )
+
     st.subheader("Matched")
+    st.caption("Each match quotes the resume, and that quote was checked to appear in the resume verbatim.")
+    if not result.matched:
+        st.write("No verified matches.")
     for claim in result.matched:
         with st.container(border=True):
             st.markdown(f"**{claim.requirement}**")
-            st.caption(f"Supported by posting `{claim.job_id}`")
+            st.markdown(f"Resume: “{claim.resume_evidence}”")
+            st.caption(f"Required by posting `{claim.job_id}`")
             if claim.job_posting_url:
                 st.markdown(f"[View posting ↗]({claim.job_posting_url})")
-            st.text(claim.supporting_excerpt)
+            with st.expander("Posting excerpt"):
+                st.text(claim.supporting_excerpt)
+
+    if result.unverified:
+        with st.expander(f"Claimed by the model but not found in the resume ({len(result.unverified)})"):
+            st.caption(
+                "The model said these were matched, but the resume text it quoted isn't in the "
+                "resume (or it gave no quote), so they're not counted as matches."
+            )
+            for claim in result.unverified:
+                quote = f" (quoted: “{claim.resume_evidence}”)" if claim.resume_evidence else " (no quote)"
+                st.markdown(f"- {claim.requirement}{quote} · posting `{claim.job_id}`")
 
     st.subheader("Missing")
     for claim in result.missing:
@@ -126,4 +163,6 @@ if uploaded_file is not None:
     st.write(result.overall_summary)
 
     with st.expander("Raw model output (debugging)"):
+        if result.attempts > 1:
+            st.caption(f"The first answer was unusable; this is attempt {result.attempts}.")
         st.text(result.raw_response)

@@ -20,4 +20,6 @@ query_correction:
 generation:
   temperature: 0.2        # low temperature: this is an analytical task,
                           # not creative generation
-  max_tokens: 800
+  max_tokens: 1024        # output cap; the format allows at most 8+8 short lines
+  num_ctx: 8192           # explicit: Ollama's default 4,096 was 96% full on a
+                          # real prompt, and overflow drops prompt text silently

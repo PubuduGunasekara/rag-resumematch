@@ -138,6 +138,64 @@ scientist/java programmer" variants) still crowd the results -- per-
 posting grouping can't merge different job_ids. See posting boilerplate
 below.
 
+## Generating the gap analysis: what the local models actually do
+
+Measured on the dummy resume with fixed retrieval (5 postings), repeated
+runs, temperature 0.2. "Usable" = the response parsed into the format.
+
+**Baseline** (original prompt, `MATCHED: - <req> -- evidenced by resume,
+required by [N]`, llama3.2:3b): 2/5 runs usable. Failures were format
+drift (`- None` bullets, MISSING lines without `[N]`) and once the
+800-token output cap. The usable runs claimed 22-28 matches -- e.g.
+GoLang, Struts, OpenShift, PL/SQL and a SAFe certification all
+"evidenced by resume", none of which the resume mentions, with MISSING
+"None". The format let the model assert evidence without showing any.
+
+**Change 1 -- quote, then verify in code.** MATCHED lines must quote a
+short exact phrase from the resume (`| resume: "<phrase>" | [N]`), and
+`evidence_in_resume` checks the quote occurs in the resume (case,
+punctuation and PDF line wraps normalized; whole words). Claims whose
+quote isn't found go to `unverified` -- shown separately in the UI,
+never counted as matches, never silently dropped. Verifiability comes
+from code, not from trusting the model.
+
+- First attempt: 0 verified matches in 8/8 runs. The 3B model "quoted"
+  job-posting text ("Excellent written and verbal communication
+  skills") as resume evidence -- it couldn't tell the two documents
+  apart, which is the root of the over-claiming.
+- Resume moved AFTER the excerpts, fenced (`<<<RESUME ... RESUME>>>`),
+  plus one example line: real verified matches (Java <- "Languages:
+  Java, Python", React <- "Web: React, Next.js, Vite").
+
+**Change 2 -- reliability plumbing.** Explicit `num_ctx: 8192`
+(Ollama's default 4,096 was 96% full, and overflow drops prompt text
+silently); `done_reason == "length"` raised as `GenerationTruncatedError`;
+one retry with a format reminder naming the actual problem; truncated
+output salvaged (complete lines kept, `truncated` flag, UI warning)
+instead of retried; `- none` accepted for an empty list.
+
+With those, end to end:
+
+| model | usable | avg time / resume | notes |
+|---|---|---|---|
+| llama3.2:3b | 7/8 (8/8 with salvage) | 32 s | ignores the 8-line cap; 5/8 runs looped to 40+ claims and were cut off before MISSING |
+| llama3.1:8b | 5/8 | 197 s | all 3 failures hit the token cap; games the verifier with real-but-irrelevant quotes (OpenShift <- "Infra & DevOps: Linux", NLP/SAS/Tensorflow <- "Concepts: Distributed Systems") |
+
+Takeaways: (1) 8B was not better here -- less reliable and 6x slower on
+an M3 Pro GPU. (2) Prompt instructions about length and format are not
+enforced by either model; salvage turns a crash into an answer whose
+MISSING list may be empty. (3) Verification proves a quote is real, not
+that it supports the claim.
+
+**Next (prototyped, not yet adopted): constrained decoding.** Ollama's
+`format` parameter accepts a JSON schema and constrains generation to
+it token by token. Prototype on llama3.2:3b, 4 runs: 4/4 valid, list
+caps (maxItems 8) enforced every time, excerpt numbers in range by
+construction (integer min/max), 31/31 quotes verified, no truncation,
+16-37 s. Remaining issues are reasoning quality, not format: irrelevant
+quotes (Agile <- "Concepts: ...Unit Testing") and skills listed as
+MISSING that the resume has (JavaScript, PostgreSQL).
+
 ## Dataset
 
 **LinkedIn Job Postings (2023-2024)**, Kaggle, uploaded by `arshkon`
@@ -190,6 +248,11 @@ README, not committed (see `.gitignore`).
   vocabulary, guard rails, 0 false corrections on the clean test resume,
   corrections shown in the UI with an on/off toggle, measured by
   `scripts/eval_query_correction.py`.
+- **Partly resolved — gap-analysis over-claiming and format drift**:
+  see "Generating the gap analysis" above. Matches are now verified
+  against the resume and drift is retried/salvaged, but both local
+  models ignore length limits and produce irrelevant-but-real quotes.
+  Constrained decoding (JSON schema) is prototyped and is the planned fix.
 - **Resolved — resume truncation**: the resume is now searched as
   token-bounded sections fused with RRF (see "Why the resume is searched
   as several queries" above).
@@ -198,24 +261,6 @@ README, not committed (see `.gitignore`).
   us" chunk appears 29 times verbatim. These can win retrieval over real
   requirements and fill every top-k slot. Also: chunks are cut
   mid-sentence and 13 chunks are under 30 words.
-- **Open — gap analysis over-claims**: first end-to-end run
-  (llama3.2:3b) followed the output format, but listed 23 MATCHED vs 3
-  MISSING, including "5+ years of Swift" as evidenced for an MS student.
-  Needs prompt work before the output can be trusted.
-- **Open — LLM output hits its token cap**: with sectioned retrieval, a
-  run on the test resume used 3,144 prompt tokens and stopped at exactly
-  3,144 + 800 (`generation.max_tokens`) -- the model quoted evidence
-  verbosely, was cut off mid-claim, and `parse_response` correctly
-  rejected the uncited last line. Not format drift: truncated output.
-  Also 3,943 of Ollama's 4,096-token context was used. Needs a larger
-  explicit `num_ctx`/`max_tokens`, a more concise output format, or both.
-- `parse_response` in `gap_analysis.py` now raises `ValueError` (with
-  the raw response attached) on a missing header, a missing `[N]`
-  citation, or an out-of-range `[N]` — it never silently returns an
-  empty gap analysis. What's NOT yet built: a retry-with-format-
-  reminder fallback when a local model drifts from the format. Worth
-  adding once you see how often `llama3.2:3b`/`llama3.1:8b` actually
-  drift in practice — don't build the retry logic speculatively.
 - `company_id` -> company name (via `companies.csv`) is loaded in
   `job_postings_loader.load_company_names` but not yet wired into
   chunk metadata or the Streamlit display — nice-to-have for citation

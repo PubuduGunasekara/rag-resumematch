@@ -1,0 +1,29 @@
+# Parsing (resume side)
+pypdf==5.1.0
+python-docx==1.1.2
+
+# Dataset download + processing (job-postings side)
+kagglehub==0.3.4
+pandas==2.2.3
+
+# Embeddings
+sentence-transformers==3.3.1
+
+# Vector store
+chromadb==0.5.23
+
+# LLM client (talks to local Ollama REST API — no SDK needed, but this
+# keeps retries/timeouts simple)
+requests==2.32.3
+
+# Front end
+streamlit==1.40.2
+
+# Config
+python-dotenv==1.0.1
+PyYAML==6.0.2
+
+# Dev / test
+pytest==8.3.4
+ruff==0.8.4
+black==24.10.0

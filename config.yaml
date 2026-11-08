@@ -1,0 +1,22 @@
+# Non-secret config. Anything that differs per machine/person (model
+# names you might swap, paths) belongs here, not hardcoded in modules.
+
+chroma_persist_dir: ./chroma_db
+
+chunking:
+  chunk_size: 300        # tokens, roughly
+  chunk_overlap: 50
+
+retrieval:
+  top_k: 5
+
+query_correction:
+  # reused from Assignment 3: only correct a query token if it's not
+  # already a known vocabulary word, and only act on the top candidate
+  # if it clears this probability margin over the raw (uncorrected) token
+  min_confidence_margin: 0.0
+
+generation:
+  temperature: 0.2        # low temperature: this is an analytical task,
+                          # not creative generation
+  max_tokens: 800

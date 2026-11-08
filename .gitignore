@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Env / secrets
+.env
+
+# Personal data — your real resume and sample job postings should not
+# live in git history, even a private repo. Keep them local only.
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# ChromaDB local persistence
+chroma_db/
+*.sqlite3
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

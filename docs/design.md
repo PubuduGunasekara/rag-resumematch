@@ -75,22 +75,68 @@ candidate against the unknown word's own probability, which is always 0,
 so it could never block a correction.
 
 **Measured effect** (`scripts/eval_query_correction.py`): inject random
-non-word typos into eligible resume words, then compare top-10 retrieval
-against the clean resume's top-10. Dummy test resume, 2k-posting index,
-5 seeds:
+non-word typos into eligible resume words, then compare the top-10
+postings retrieved against the clean resume's top-10. Dummy test resume,
+20k-posting index, sectioned retrieval (see next section), 5 seeds:
 
 | typo rate | overlap, correction OFF | overlap, correction ON | typos restored exactly |
 |---|---|---|---|
-| 5%  | 0.90 | 0.96 | 77% |
-| 10% | 0.74 | 0.84 | 82% |
-| 20% | 0.70 | 0.84 | 76% |
-| 30% | 0.66 | 0.76 | 76% |
+| 5%  | 0.86 | 0.96 | 77% |
+| 10% | 0.72 | 0.92 | 82% |
+| 20% | 0.60 | 0.78 | 76% |
+| 30% | 0.62 | 0.84 | 76% |
 
-Caveats: one resume, small index, synthetic typos (real OCR damage also
-merges/splits words, which edit-1/2 on single tokens can't fix). Typos
-past the embedder's 512-token window have no effect either way (see the
-resume-truncation risk below), which compresses the OFF/ON gap. Re-run
-on the full index and several resumes before quoting final numbers.
+Under the earlier single-vector retrieval the gain was smaller (10%:
+0.74 → 0.84), because typos past the embedder's 512-token window had no
+effect either way. Caveats: one resume, synthetic typos (real OCR damage
+also merges/splits words, which edit-1/2 on single tokens can't fix),
+and 5 seeds is noisy (the 30% row beating 20% is noise, not a trend).
+Re-run on the full index and several resumes before quoting final
+numbers.
+
+## Why the resume is searched as several queries, not one
+
+The embedder (bge-small) reads at most 512 tokens and silently drops the
+rest. Embedding the whole resume as one query meant the 1,017-token test
+resume was retrieved on its first 510 tokens only: its entire EXPERIENCE
+and TECHNICAL SKILLS sections never reached retrieval, with no error.
+
+Fix (`preprocess/resume_sections.py`, `retrieval/fusion.py`):
+
+1. Split the resume on its section headings (known names in any case,
+   or short ALL-CAPS lines; the first line is the name, never a
+   heading). Each section is capped at 480 tokens measured with the
+   embedder's own tokenizer (whitespace words undercount ~2x); an
+   oversized section is cut between lines into evenly sized pieces
+   with the heading repeated. No detectable headings -> fixed windows.
+2. Query each section separately (per_section_k = 30 chunks).
+3. Combine with reciprocal rank fusion, per POSTING:
+   score = sum over sections of 1 / (60 + rank). Rank-based, so
+   sections with different distance scales combine fairly; a posting
+   several sections agree on beats one a single section matches
+   closely; and results are distinct postings (each with its best
+   chunk) rather than several chunks of one posting.
+
+Why sections rather than fixed windows: each query vector then means one
+thing ("what they built", "what tools they know"), and the UI can show
+which resume sections matched each posting.
+
+Measured (`scripts/eval_resume_coverage.py`, test resume, 20k postings):
+
+- Coverage: single vector sees 510 / 1,015 tokens (50%); sectioned sees
+  all of it, as 6 sections.
+- Sensitivity, the direct test for truncation: replace the resume's
+  TECHNICAL SKILLS with a nurse's skills. Single-vector top-10 overlap
+  with the original: **1.00** (results identical; the section was never
+  seen). Sectioned: **0.60**.
+- Top-10 overlap between the two methods: 0.70.
+
+Open questions: every section gets an equal vote, including the
+contact/header block; and near-duplicate postings (one recruiter
+posting the same text under several job_ids, e.g. six "Junior data
+scientist/java programmer" variants) still crowd the results -- per-
+posting grouping can't merge different job_ids. See posting boilerplate
+below.
 
 ## Dataset
 
@@ -144,11 +190,9 @@ README, not committed (see `.gitignore`).
   vocabulary, guard rails, 0 false corrections on the clean test resume,
   corrections shown in the UI with an on/off toggle, measured by
   `scripts/eval_query_correction.py`.
-- **Open — resume truncation**: the whole resume is embedded as ONE
-  query, but bge-small reads at most 512 tokens. The dummy test resume
-  is 1,017 tokens, so roughly its second half (experience/skills) is
-  invisible to retrieval. Likely fix: embed sections separately and
-  merge results.
+- **Resolved — resume truncation**: the resume is now searched as
+  token-bounded sections fused with RRF (see "Why the resume is searched
+  as several queries" above).
 - **Open — posting boilerplate**: on the first 2k postings, 536/4,180
   chunks (13%) contain equal-opportunity text and one company's "About
   us" chunk appears 29 times verbatim. These can win retrieval over real
@@ -158,6 +202,13 @@ README, not committed (see `.gitignore`).
   (llama3.2:3b) followed the output format, but listed 23 MATCHED vs 3
   MISSING, including "5+ years of Swift" as evidenced for an MS student.
   Needs prompt work before the output can be trusted.
+- **Open — LLM output hits its token cap**: with sectioned retrieval, a
+  run on the test resume used 3,144 prompt tokens and stopped at exactly
+  3,144 + 800 (`generation.max_tokens`) -- the model quoted evidence
+  verbosely, was cut off mid-claim, and `parse_response` correctly
+  rejected the uncited last line. Not format drift: truncated output.
+  Also 3,943 of Ollama's 4,096-token context was used. Needs a larger
+  explicit `num_ctx`/`max_tokens`, a more concise output format, or both.
 - `parse_response` in `gap_analysis.py` now raises `ValueError` (with
   the raw response attached) on a missing header, a missing `[N]`
   citation, or an out-of-range `[N]` — it never silently returns an

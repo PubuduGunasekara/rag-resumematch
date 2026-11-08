@@ -8,7 +8,8 @@ chunking:
   chunk_overlap: 50
 
 retrieval:
-  top_k: 5
+  top_k: 5               # distinct POSTINGS sent to the LLM (not chunks)
+  per_section_k: 30      # chunks retrieved per resume section before fusion
 
 query_correction:
   # Guard rails for running Assignment 3's corrector on resume text; see

@@ -2,7 +2,7 @@
 
 Method (synthetic noise, since we have no corpus of real OCR-damaged
 resumes with clean ground truth):
-  1. Retrieve top-k chunks for the CLEAN resume -> the reference set.
+  1. Retrieve top-k postings for the CLEAN resume -> the reference set.
   2. Inject typos into a fraction of eligible words (lowercase, >= 5
      letters, known to the vocabulary), one random edit each, using the
      same four operations as Assignment 3 (delete/insert/replace/swap).
@@ -34,7 +34,9 @@ from dotenv import load_dotenv
 from resumematch.ingest.parse_resume import parse_resume
 from resumematch.pipeline import load_config
 from resumematch.preprocess.query_correction import LETTERS, correct_query
+from resumematch.preprocess.resume_sections import split_resume
 from resumematch.retrieval.embedder import Embedder
+from resumematch.retrieval.fusion import retrieve_for_resume
 from resumematch.retrieval.vector_store import VectorStore
 
 VOCAB_PATH = Path("data/processed/domain_vocab.json")
@@ -98,8 +100,14 @@ def main():
     print(f"Index: {store.count()} chunks | vocabulary: {len(vocab)} words | top-k={args.top_k}\n")
 
     def retrieve(text: str) -> list[str]:
-        hits = store.query(embedder.embed([text])[0], top_k=args.top_k)
-        return [f"{h['job_id']}:{h['text'][:40]}" for h in hits]
+        # Same retrieval as the pipeline: per-section queries + RRF, so
+        # typos anywhere in the resume can matter (not just the first
+        # 512 tokens). Compared on distinct postings.
+        sections = split_resume(text, embedder.count_tokens, max_tokens=embedder.max_tokens - 32)
+        hits = retrieve_for_resume(
+            sections, embedder, store, top_k=args.top_k, per_section_k=config["retrieval"]["per_section_k"]
+        )
+        return [h["job_id"] for h in hits]
 
     for path in args.resumes:
         clean = parse_resume(path)
@@ -129,7 +137,7 @@ def main():
                   f"{m(recall):>14.0%} {m(wrong):>12.1f}")
         print()
 
-    print("overlap = share of the clean resume's top-k chunks still retrieved (1.00 = typos had no effect).")
+    print("overlap = share of the clean resume's top-k postings still retrieved (1.00 = typos had no effect).")
     print("fixed exactly = injected typos restored to the original word; wrong fixes = changes that "
           "were not an exact restoration.")
 

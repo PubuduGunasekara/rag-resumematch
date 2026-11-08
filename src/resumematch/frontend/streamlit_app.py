@@ -95,6 +95,16 @@ if uploaded_file is not None:
             else:
                 st.write("No typos found. The resume was searched exactly as written.")
 
+    with st.expander(f"Postings retrieved ({len(pipeline_result.retrieved)})"):
+        st.caption(
+            f"The resume was searched as {len(pipeline_result.sections)} separate sections "
+            "(each within the embedding model's 512-token window), and results were "
+            "combined per posting with reciprocal rank fusion."
+        )
+        for i, posting in enumerate(pipeline_result.retrieved, start=1):
+            link = f"[{posting['title']}]({posting['job_posting_url']})" if posting["job_posting_url"] else posting["title"]
+            st.markdown(f"**[{i}]** {link} · matched by: {', '.join(posting['matched_sections'])}")
+
     st.subheader("Matched")
     for claim in result.matched:
         with st.container(border=True):

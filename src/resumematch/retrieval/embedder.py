@@ -25,3 +25,16 @@ class Embedder:
         """
         model = self._load()
         return model.encode(texts, normalize_embeddings=True).tolist()
+
+    @property
+    def max_tokens(self) -> int:
+        """Longest input the model actually reads (512 for bge-small);
+        anything past this is silently truncated by encode()."""
+        return self._load().max_seq_length
+
+    def count_tokens(self, text: str) -> int:
+        """Length in the MODEL's own tokens (wordpieces, no specials) --
+        the unit max_tokens is measured in. Whitespace word counts
+        undercount this ~2x on resume text."""
+        tokenizer = self._load().tokenizer
+        return len(tokenizer(text, add_special_tokens=False)["input_ids"])

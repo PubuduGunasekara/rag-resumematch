@@ -13,7 +13,9 @@ import yaml
 
 from resumematch.ingest.parse_resume import parse_resume
 from resumematch.preprocess.query_correction import CorrectionResult, correct_query
+from resumematch.preprocess.resume_sections import ResumeSection, split_resume
 from resumematch.retrieval.embedder import Embedder
+from resumematch.retrieval.fusion import retrieve_for_resume
 from resumematch.retrieval.vector_store import VectorStore
 from resumematch.generation.ollama_client import OllamaClient
 from resumematch.generation.gap_analysis import run_gap_analysis, GapAnalysisResult
@@ -30,6 +32,12 @@ class PipelineResult:
     # can show "pyhton -> python" instead of correcting invisibly.
     # Empty when correction was off or nothing needed fixing.
     corrections: list[CorrectionResult]
+    # The resume as it was queried: one entry per section, each within
+    # the embedder's token window.
+    sections: list[ResumeSection]
+    # The postings handed to the LLM, one chunk per posting, with
+    # "matched_sections" saying which resume sections retrieved each.
+    retrieved: list[dict]
 
 
 def load_config(config_path: str = "config.yaml") -> dict:
@@ -79,8 +87,21 @@ def run_pipeline(
     # rather than erroring.
     embedding_model = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
     embedder = Embedder(model_name=embedding_model)
-    query_embedding = embedder.embed([corrected_text])[0]
-    retrieved = store.query(query_embedding, top_k=config["retrieval"]["top_k"])
+
+    # One query per resume section, never the whole resume at once: the
+    # embedder reads at most max_tokens (512) and silently drops the
+    # rest, which cut the test resume's EXPERIENCE and SKILLS entirely.
+    # Results are fused per posting with reciprocal rank fusion.
+    sections = split_resume(
+        corrected_text, count_tokens=embedder.count_tokens, max_tokens=embedder.max_tokens - 32
+    )
+    retrieved = retrieve_for_resume(
+        sections,
+        embedder,
+        store,
+        top_k=config["retrieval"]["top_k"],
+        per_section_k=config["retrieval"]["per_section_k"],
+    )
 
     client = OllamaClient()
     # The LLM gets the ORIGINAL resume text: correction exists to make
@@ -92,4 +113,6 @@ def run_pipeline(
         temperature=config["generation"]["temperature"],
         max_tokens=config["generation"]["max_tokens"],
     )
-    return PipelineResult(gap_analysis=gap_analysis, corrections=corrections)
+    return PipelineResult(
+        gap_analysis=gap_analysis, corrections=corrections, sections=sections, retrieved=retrieved
+    )

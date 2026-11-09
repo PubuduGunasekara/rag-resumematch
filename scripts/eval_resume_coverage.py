@@ -12,7 +12,7 @@ section + reciprocal rank fusion):
      exactly what truncation looks like from the outside.
 
 Usage:
-    python scripts/eval_resume_coverage.py RESUME.pdf [--top-k 10]
+    python scripts/eval_resume_coverage.py RESUME.pdf [--top-k 10] [--swap nursing|software]
 """
 
 import argparse
@@ -33,12 +33,22 @@ Certifications: Registered Nurse (RN), BLS, ACLS, PALS
 Systems: Epic EHR, Cerner, Pyxis MedStation
 Specialties: ICU, emergency department, telemetry, pediatric care, patient education"""
 
+# For a nursing resume, nursing skills aren't "unrelated": swap these in instead.
+UNRELATED_SKILLS_SOFTWARE = """TECHNICAL SKILLS
+Languages: Python, Java, TypeScript, Go, SQL
+Frameworks: React, Spring Boot, Django, Node.js
+Cloud & DevOps: AWS, Docker, Kubernetes, Terraform, CI/CD
+Data: PostgreSQL, Redis, Kafka, Spark"""
+SWAPS = {"nursing": UNRELATED_SKILLS, "software": UNRELATED_SKILLS_SOFTWARE}
+
 
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument("resume")
     parser.add_argument("--top-k", type=int, default=10)
+    parser.add_argument("--swap", choices=SWAPS, default="nursing",
+                        help="skills that replace the last section in the sensitivity check")
     args = parser.parse_args()
 
     config = load_config()
@@ -81,8 +91,8 @@ def main():
     # Sensitivity: swap the last section for an unrelated profession's.
     last = sections[-1]
     body_start = text.index(last.text.splitlines()[1]) - len(last.text.splitlines()[0]) - 1
-    swapped = text[:body_start] + "\n" + UNRELATED_SKILLS
-    print(f"\nSensitivity: replaced '{last.heading}' with nursing skills")
+    swapped = text[:body_start] + "\n" + SWAPS[args.swap]
+    print(f"\nSensitivity: replaced '{last.heading}' with {args.swap} skills")
     print(f"  single-vector: top-{args.top_k} overlap with original = {overlap(old, single_vector(swapped)):.2f}"
           f"   (1.00 = the section was never seen)")
     print(f"  sectioned:     top-{args.top_k} overlap with original = {overlap(new, sectioned(swapped)):.2f}")

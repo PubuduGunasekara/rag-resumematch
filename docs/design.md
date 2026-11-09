@@ -364,18 +364,19 @@ Full index, built with `python scripts/build_index.py` (no `--limit`)
 in ~40 min on an M3 Pro: 123,849 postings -> 107,528 distinct (16,314
 exact duplicates skipped) -> **237,902 chunks**, 3.6 GB on disk.
 Earlier sections' numbers came from 2k/20k dev indexes; these supersede
-them. All measured on the one dummy test resume -- the main caveat.
+them. Measured on the one dummy test resume; see "Results across four
+resumes" below for three more fields, which revise two of these rows.
 
 | what | result | script |
 |---|---|---|
 | chunks with EEO/accommodation text | 2.9% (26.9% before cleanup) | stats over the index |
 | chunks ending at a sentence boundary | 68.4% (25.9% before) | stats over the index |
 | resume tokens retrieval sees | 1,015 / 1,015 (single vector: 510, 50%) | `eval_resume_coverage.py` |
-| skills-swap sensitivity, top-10 overlap | sectioned **0.30**; single vector 1.00 (blind) | `eval_resume_coverage.py` |
+| skills-swap sensitivity, top-10 overlap | sectioned **0.30**; single vector 1.00 (blind) -- does not generalize, see below | `eval_resume_coverage.py` |
 | false corrections on the clean resume | 0 | `eval_query_correction.py` |
 | retrieval kept under 10% typos | 0.80 -> **0.98** with correction | `eval_query_correction.py` |
 | retrieval kept under 20% typos | 0.70 -> 0.84 with correction | `eval_query_correction.py` |
-| gap analysis, verified per run (6 runs) | 4.5 matched, 3.5 missing; 0 format failures | llama3.2:3b |
+| gap analysis, verified per run (6 runs) | 4.5 matched, 3.5 missing; 0 format failures -- superseded below | llama3.2:3b |
 | latency | retrieval 0.04 s; full pipeline 11 s (LLM-bound) | M3 Pro, Metal GPU |
 
 Top 10 for the test resume (a React Native / Java / Spring developer):
@@ -386,9 +387,81 @@ Verified matches across runs: Java, Kafka, Docker, React Native, Redux,
 JavaScript. Verified gaps: Jest, Enzyme, Webpack, Babel, ESLint, MobX,
 Context API, HTML/CSS, Kafka Streams, Kubernetes.
 
-Before quoting these as general results: run the eval scripts on
-several real resumes (different fields, not just software), and time
-the pipeline on the CPU-only host intended for the portfolio deploy.
+Still to do before quoting these as general: time the pipeline on the
+CPU-only host intended for the portfolio deploy.
+
+## Results across four resumes (Nov 8)
+
+Three synthetic resumes in `eval/resumes/` (fictional people, safe to
+commit), chosen to be unlike the software test resume: an ICU **nurse**,
+a staff **accountant**, and a manufacturing **mechanical engineer** whose
+resume uses Title Case headings ("Work History"). All three are short
+(326-420 tokens), unlike the 1,015-token software resume.
+
+**Retrieval is on-target in every field.** Top 5: ICU / cardiac ICU /
+ED nurse roles at Boston-area hospitals; Staff/Senior Accountant roles in
+Chicago; BIW tooling designer, manufacturing and process engineer roles.
+
+**The skills-swap check does not generalize.** Replacing the last
+section with another profession's skills left the sectioned top 10
+unchanged (overlap 1.00) for the nurse and the accountant, while the
+single vector moved (0.60). The section is read; it's outvoted: RRF
+rewards postings found by several sections, so one off-topic section's
+hits can't outrank postings that 3-4 sections agree on. That is the
+intended consensus behaviour for a coherent resume, but it means a
+career-changer whose skills section points somewhere else than their
+experience will get results driven by the experience. The software
+resume's 0.30 came from its sections being more varied. Not changed;
+weighting sections is an option if this matters.
+
+**Bugs found and fixed:**
+
+| bug | example | fix |
+|---|---|---|
+| Title Case headings not detected -> whole resume one query | "Work History", "Certifications and Tools" | heading = Title Case line with a heading keyword ("history", "skills", ...); job titles ("Manufacturing Engineer II") have none. 2 tests |
+| company name "corrected" | Midstate -> **Mistake** (clean resume) | capitalized words mid-line (after a dash separator too) get edit-1 fixes only, no edit-2: still fixes "Kubernets", can't rewrite names. 4 tests |
+| employer benefits listed as missing skills | "403(b) Retirement Savings plan", "Pension", "Medical, Dental, Vision", "Relocation assistance" | rejected in code by a narrow pattern ("computer vision", "medical-surgical" pass). 10 tests |
+| false gaps from plurals/filler | "Current BLS certification" vs "CERTIFICATIONS ... BLS"; "Microsoft Excel" vs "Excel" | crude plural stemming on both sides; "current", "microsoft" are filler. 2 tests |
+
+A prompt fix for the benefits was tried first and **rejected on
+measurement**: adding "never list what the employer offers" to the
+prompt cut verified gaps from 2.8 to 0.2 per run (software resume) and
+4.3 to 2.0 (accountant), and didn't reduce benefit claims (6 vs 6 in 6
+runs). With a 3B model, extra negative instructions read as "list less".
+
+**After the fixes** (`eval_query_correction.py`, 5 seeds; gap analysis
+4 runs each, llama3.2:3b, native Ollama on an M3 Pro):
+
+| resume | false corrections (clean) | overlap at 10% typos, off -> on | verified matched / run | verified missing / run | s / run |
+|---|---|---|---|---|---|
+| software (dummy) | 0 | 0.76 -> 0.98 | 3.2 | 0.2 | 8 |
+| nurse | 0 | 0.80 -> 0.94 | 4.0 | 5.2 | 11 |
+| accountant | 0 | 0.60 -> 0.96 | 5.2 | 4.2 | 11 |
+| mech. engineer | 0 (was 1) | 0.86 -> 1.00 | 1.5 | 7.8 | 13 |
+
+0 format failures in 16 runs. Gaps kept read as real gaps: nurse --
+sepsis/septic shock, cardiogenic shock, renal failure, arrhythmias;
+accountant -- SOX compliance, SAP, Big Four experience, people
+management; engineer -- auto assembly strategies, NX CAD, axle/plastic
+component design.
+
+The software resume's verified gaps dropped from 3.5 to 0.2 per run
+because the plural fix now (correctly) rejects "REST APIs"/"OpenAI API"
+for a resume that says "API"; the model's other "missing" items for it
+(React, Next.js, Node.js) are on the resume. For a well-matched
+candidate, most of what a 3B model calls missing isn't.
+
+**Still open (seen in these runs, not fixed):**
+- Abbreviation/synonym gaps: "ICU experience" for "Medical Intensive
+  Care Unit"; "Bachelor's degree in engineering" for "B.S. Mechanical
+  Engineering". Fails toward a wrong gap; needs a synonym list.
+- The engineer gets few verified matches (1.5 / run): 14 of the model's
+  31 quotes weren't in the resume. Quote fidelity varies by resume.
+- Some "requirements" are posting fragments with glued sentences
+  ("...Body in White AssemblyApproximately 10 years...") from postings
+  whose source text has no spaces between sentences.
+- Synthetic resumes written by us, so they're cleaner than real ones;
+  real PDFs (columns, odd layouts) are still untested.
 
 ## Dataset
 

@@ -126,6 +126,18 @@ _URLISH = re.compile(r"[@/]|[A-Za-z]\.[A-Za-z]")
 _WORD = re.compile(r"[A-Za-z]+")
 
 
+# Applied to the right-stripped text before the word on its line: line
+# start, a bullet that opens the line, or sentence/list punctuation. A
+# dash mid-line is a separator ("Process Engineer — Midstate ..."),
+# which is exactly where company names sit.
+_SENTENCE_START = re.compile(r"(^\s*[•\-–—*]?|[.!?:;|])$")
+
+
+def _maybe_name(token: str, line_prefix: str) -> bool:
+    """Capitalized and NOT the first word of a line, bullet or sentence."""
+    return token[0].isupper() and not _SENTENCE_START.search(line_prefix.rstrip())
+
+
 def _skip_reason(token: str, min_token_length: int) -> str | None:
     """Why `token` must not be corrected, or None if it's a candidate."""
     if len(token) < min_token_length:
@@ -164,6 +176,11 @@ def correct_query(
             this long. Two edits on a 6-letter word rewrites a third of
             it (Khoury -> Hours); on a 9-letter word it's a plausible
             double typo (kuberntes -> kubernetes).
+            Capitalized words in mid-line ("at Midstate Metal Forming")
+            never get edit-2 candidates whatever their length: they're
+            often names, and Midstate -> Mistake (2 edits) was a real
+            false correction. They still get edit-1 fixes, since skills
+            lists are capitalized too ("Tools: Docker, Kubernets").
     Output:
         (corrected_query, list of CorrectionResult for every unknown
         token that was considered) -- kept separate from the string so
@@ -171,7 +188,7 @@ def correct_query(
     """
     results: list[CorrectionResult] = []
 
-    def correct_word(match: re.Match) -> str:
+    def correct_word(match: re.Match, line_prefix: str) -> str:
         original = match.group(0)
         lower = original.lower()
 
@@ -181,7 +198,7 @@ def correct_query(
             return original
 
         best, distance = _best_edit1_match(lower, vocabulary_probs), 1
-        if best is None and len(lower) >= edit2_min_length:
+        if best is None and len(lower) >= edit2_min_length and not _maybe_name(original, line_prefix):
             edit2 = probable_substitutes(lower, vocabulary_probs, maxret=1)
             best, distance = (edit2[0] if edit2 else None), 2
 
@@ -198,7 +215,10 @@ def correct_query(
         span = match.group(0)
         if _URLISH.search(span):
             return span
-        return _WORD.sub(correct_word, span)
+        line_start = query.rfind("\n", 0, match.start()) + 1
+        return _WORD.sub(
+            lambda w: correct_word(w, query[line_start:match.start()] + span[:w.start()]), span
+        )
 
     corrected_query = re.sub(r"\S+", correct_span, query)
     return corrected_query, results

@@ -240,3 +240,38 @@ def test_wrong_citation_is_repaired_to_the_posting_that_mentions_it():
     check_claims([c], FULL_RESUME + ", TypeScript", [{"job_id": "1", "text": "A React Native role."}, other])
     assert c.issue is None and c.recited
     assert c.job_id == "5" and c.job_posting_url == "https://x/5"
+
+
+@pytest.mark.parametrize("benefit", [
+    "403(b) Retirement Savings plan", "Pension", "Relocation assistance",
+    "Medical, Dental, Vision", "Hybrid work arrangement", "Flexible schedules",
+    "Tuition and certain License and Certification Reimbursement",
+])
+def test_employer_benefits_are_not_requirements(benefit):
+    # Real: all of these came back as "missing" on nurse/engineer resumes.
+    c = claim(benefit, kind="missing", excerpt=f"We offer {benefit}.")
+    check_claims([c], FULL_RESUME)
+    assert c.issue == "an employer benefit, not a requirement"
+
+
+@pytest.mark.parametrize("requirement", [
+    "Medical-surgical experience", "Remote patient monitoring", "Computer vision",
+])
+def test_benefit_check_does_not_catch_real_requirements(requirement):
+    c = claim(requirement, kind="missing", excerpt=f"Requires {requirement}.")
+    check_claims([c], FULL_RESUME)
+    assert c.issue != "an employer benefit, not a requirement"
+
+
+def test_plural_and_filler_differences_are_not_gaps():
+    # Real false gaps: "Current BLS certification" vs "CERTIFICATIONS ... BLS";
+    # "Microsoft Excel" vs "Excel (VLOOKUP, ...)".
+    resume = "LICENSES AND CERTIFICATIONS\nACLS, BLS, PALS\nTools: Excel (VLOOKUP, pivot tables)"
+    for req in ("Current BLS certification", "Microsoft Excel"):
+        c = claim(req, kind="missing", excerpt=f"Requires {req}.")
+        check_claims([c], resume)
+        assert c.issue == "listed as missing, but the resume mentions it", req
+
+
+def test_possessive_s_is_not_a_key_term():
+    assert key_terms("Bachelor's degree") == ["bachelor", "degree"]

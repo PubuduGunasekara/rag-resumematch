@@ -89,3 +89,28 @@ def test_capitalised_typo_at_bullet_start_is_still_corrected():
 def test_build_domain_vocabulary_accepts_a_generator():
     vocab = build_domain_vocabulary((t for t in ["redis cache", "redis queue"]))
     assert "redis" in vocab
+
+
+def test_mid_line_capitalized_word_gets_no_edit2_fix():
+    # Real: "Midstate Metal Forming" -> "Mistake Metal Forming" (2 edits).
+    vocab = {"mistake": 0.5, "metal": 0.3, "forming": 0.2}
+    corrected, _ = correct_query("Process Engineer at Midstate Metal Forming", vocab)
+    assert "Midstate" in corrected
+
+
+def test_mid_line_capitalized_word_still_gets_edit1_fix():
+    vocab = {"tools": 0.3, "docker": 0.3, "kubernetes": 0.4}
+    corrected, _ = correct_query("Tools: Docker, Kubernets", vocab)
+    assert corrected.endswith("Kubernetes")
+
+
+def test_line_initial_capitalized_word_keeps_edit2():
+    vocab = {"kubernetes": 1.0}
+    corrected, _ = correct_query("- Kuberntes clusters", vocab)  # bullet start: not a name
+    assert corrected.startswith("- Kubernetes")
+
+
+def test_dash_separator_is_not_a_sentence_start():
+    vocab = {"mistake": 0.5, "process": 0.3, "engineer": 0.2}
+    corrected, _ = correct_query("Process Engineer — Midstate Metal Forming", vocab)
+    assert "Midstate" in corrected

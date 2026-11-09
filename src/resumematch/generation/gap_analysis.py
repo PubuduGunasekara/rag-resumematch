@@ -158,6 +158,7 @@ expertise exposure familiarity familiar proficiency proficient understanding abi
 years year hands working work excellent good basic advanced deep demonstrated
 preferred required requirement nice have must services service tools tool concepts
 development developer programming language languages environment environments
+current s microsoft
 """.split())
 
 
@@ -167,14 +168,40 @@ def key_terms(requirement: str) -> list[str]:
     return [t for t in _normalize(requirement).split() if t not in _FILLER]
 
 
+def _stem(word: str) -> str:
+    """Plural -> singular, crudely: "certifications" -> "certification".
+    Applied to both sides, so a wrong stem ("aws" -> "aw") still matches
+    itself. Without it "Current BLS certification" was a "gap" for a
+    resume listing "LICENSES AND CERTIFICATIONS ... BLS"."""
+    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
+
+
 def _found(terms: list[str], text: str) -> list[str]:
-    haystack = f" {_normalize(text)} "
-    return [t for t in terms if f" {t} " in haystack]
+    haystack = f" {' '.join(_stem(w) for w in _normalize(text).split())} "
+    return [t for t in terms if f" {_stem(t)} " in haystack]
 
 
 def _mentions(terms: list[str], text: str) -> bool:
     """At least half of the key terms appear in text."""
     return len(_found(terms, text)) * 2 >= len(terms)
+
+
+# What the employer offers, not what the candidate needs. Seen as "missing
+# skills" on non-tech resumes (nurse: "403(b) Retirement Savings plan",
+# "Pension", "Relocation assistance"; engineer: "Medical, Dental, Vision"):
+# the posting really says it, so no grounding check can reject it.
+# Done in code only: telling llama3.2:3b "never list benefits" in the
+# prompt cut verified gaps 2.8 -> 0.2 per run (SWE resume) and 4.3 -> 2.0
+# (accountant) without reducing benefit claims at all (6 vs 6 in 6 runs).
+# Kept narrow: bare "medical", "remote" or "vision" would hit "Medical-surgical
+# experience", "remote patient monitoring" or "computer vision".
+_BENEFIT = re.compile(
+    r"\b(401\s*\(?k\)?|403\s*\(?b\)?|retirement|pension|dental|vision (insurance|coverage|plan)s?|insurance|"
+    r"pto|paid time off|vacation|holidays?|parental leave|relocation|tuition|reimbursement|"
+    r"salary|compensation|bonus(es)?|benefits?|perks?|wellness|hybrid|remote work|work from home|"
+    r"flexible (schedule|hours)s?|schedules?|work.life balance)\b",
+    re.IGNORECASE,
+)
 
 
 def check_claims(claims: list[CitedClaim], resume_text: str, retrieved_chunks: list[dict] | None = None) -> None:
@@ -191,11 +218,15 @@ def check_claims(claims: list[CitedClaim], resume_text: str, retrieved_chunks: l
     missing:     the resume must not contain ALL of the requirement's
                  key terms ("AWS" listed as missing when the resume
                  says AWS is a contradiction, not a gap).
+    Also rejected: employer benefits listed as requirements (_BENEFIT).
     """
     for claim in claims:
         terms = key_terms(claim.requirement)
         if not terms:
             claim.issue = "too vague to check against the posting"
+            continue
+        if _BENEFIT.search(claim.requirement):
+            claim.issue = "an employer benefit, not a requirement"
             continue
         if not _mentions(terms, claim.supporting_excerpt):
             other = next((c for c in retrieved_chunks or [] if _mentions(terms, c["text"])), None)

@@ -32,6 +32,25 @@ _KNOWN_HEADINGS = {
 }
 _CAPS_HEADING = re.compile(r"^[A-Z][A-Z &/]{2,40}$")  # "TECHNICAL SKILLS", "WORK & LEADERSHIP"
 
+# Title Case headings outside the list ("Work History", "Certifications
+# and Tools"): every word capitalized (connectors aside) AND one of these
+# words present. Without the keyword, short Title Case lines are mostly
+# job titles ("Manufacturing Engineer II"). Deliberately absent: words
+# that also head job titles ("research", "project", "leadership").
+_HEADING_KEYWORDS = {
+    "experience", "history", "education", "skills", "summary", "competencies",
+    "certifications", "certificates", "licenses", "licensure", "qualifications",
+    "projects", "awards", "publications", "tools",
+}
+_CONNECTORS = {"and", "&", "/", "of", "or"}
+
+
+def _is_title_case_heading(stripped: str) -> bool:
+    words = stripped.split()
+    if not all(w in _CONNECTORS or w[0].isupper() for w in words):
+        return False
+    return any(w.lower() in _HEADING_KEYWORDS for w in words)
+
 # Shorter sections than this are merged into the next one: a lone
 # heading or a one-line fragment makes a noisy, low-information query.
 MIN_SECTION_WORDS = 12
@@ -47,7 +66,13 @@ def _is_heading(line: str) -> bool:
     stripped = line.strip().rstrip(":")
     if not stripped or len(stripped.split()) > 4:
         return False
-    return stripped.lower() in _KNOWN_HEADINGS or bool(_CAPS_HEADING.match(stripped))
+    if stripped.endswith((".", ",", ";")):  # a sentence or bullet, not a heading
+        return False
+    return (
+        stripped.lower() in _KNOWN_HEADINGS
+        or bool(_CAPS_HEADING.match(stripped))
+        or _is_title_case_heading(stripped)
+    )
 
 
 def _split_long_line(line: str, max_tokens: int, count_tokens: Callable[[str], int]) -> list[str]:

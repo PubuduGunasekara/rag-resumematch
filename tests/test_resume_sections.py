@@ -79,3 +79,24 @@ def test_single_overlong_line_is_split_on_words():
 
 def test_empty_text():
     assert split_resume("  \n\n ", words) == []
+
+
+def test_title_case_headings_outside_the_list_are_found():
+    # Real: a resume using "Work History" / "Certifications and Tools" fell
+    # back to one fixed window because neither heading was recognised.
+    text = (
+        "Priya Raman\n"
+        "Work History\n" + bullets("Designed welding fixtures in SolidWorks", 3) + "\n"
+        + "Certifications and Tools\n" + bullets("Lean Six Sigma Green Belt certified", 3)
+    )
+    headings = [s.heading for s in split_resume(text, words, max_tokens=200)]
+    assert "WORK HISTORY" in headings and "CERTIFICATIONS AND TOOLS" in headings
+
+
+def test_job_titles_and_sentences_are_not_headings():
+    from resumematch.preprocess.resume_sections import _is_heading
+    assert not _is_heading("Manufacturing Engineer II")   # Title Case, no keyword
+    assert not _is_heading("Research Assistant")          # 'research' deliberately not a keyword
+    assert not _is_heading("Gained hands-on experience")  # not Title Case
+    assert not _is_heading("Strong Skills.")              # ends like a sentence
+    assert _is_heading("Professional History:")

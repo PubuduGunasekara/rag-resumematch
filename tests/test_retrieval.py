@@ -3,10 +3,12 @@ deterministic — real embeddings aren't needed to verify the store's
 add/query contract, just its wiring.
 """
 
-import pytest
 import tempfile
-from resumematch.retrieval.vector_store import VectorStore
+
+import pytest
+
 from resumematch.preprocess.chunker import Chunk
+from resumematch.retrieval.vector_store import VectorStore
 
 
 @pytest.fixture
@@ -50,3 +52,8 @@ def test_count_reflects_added_chunks(store):
     assert store.count() == 0
     store.add_chunks(chunks, embeddings)
     assert store.count() == 2
+
+
+def test_chroma_telemetry_is_off(store):
+    store.count()  # opens the client
+    assert store._client.get_settings().anonymized_telemetry is False

@@ -5,6 +5,14 @@ backend worth it) means changing one file, not grepping the project.
 
 from resumematch.preprocess.chunker import Chunk
 
+# HNSW search settings, applied when a collection is created (ChromaDB
+# ignores changes to them afterwards). With the defaults (search_ef 10),
+# search returned 77% of the true 30 nearest chunks on one resume and
+# different neighbours in different processes; see docs/engineering-log.md,
+# search-recall. "l2" is ChromaDB's default space, kept so distances match
+# indexes built before this change.
+HNSW_SETTINGS = {"hnsw:space": "l2", "hnsw:construction_ef": 200, "hnsw:search_ef": 200, "hnsw:M": 16}
+
 
 class VectorStore:
     def __init__(self, persist_dir: str = "./chroma_db", collection_name: str = "job_posting_chunks"):
@@ -16,19 +24,28 @@ class VectorStore:
     def _get_collection(self):
         if self._collection is None:
             import chromadb
-            self._client = chromadb.PersistentClient(path=self.persist_dir)
-            self._collection = self._client.get_or_create_collection(self.collection_name)
+            from chromadb.config import Settings
+            # ChromaDB sends anonymized usage events by default (no document
+            # text). Off: nothing about a session should leave the machine.
+            self._client = chromadb.PersistentClient(
+                path=self.persist_dir, settings=Settings(anonymized_telemetry=False)
+            )
+            try:
+                self._collection = self._client.get_collection(self.collection_name)
+            except Exception:  # noqa: BLE001 - chromadb raises different types across versions
+                # Settings only take effect when a collection is created.
+                self._collection = self._client.create_collection(self.collection_name, metadata=HNSW_SETTINGS)
         return self._collection
 
     def add_chunks(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
         """
         Stores chunks with their embeddings and citation metadata
-        (job_id, section, job_posting_url, title) — every field needed
+        (job_id, section, job_posting_url, title): every field needed
         to render a clickable citation lives in metadata, not somewhere
         that has to be re-joined at query time.
 
         Called in batches from scripts/build_index.py, NOT with the
-        full 124k-row corpus at once — batch size matches
+        full 124k-row corpus at once; batch size matches
         job_postings_loader's iter_job_postings batch_size.
         """
         if not chunks:
@@ -52,7 +69,7 @@ class VectorStore:
             {"text": str, "distance": float, "job_id": str, "section": str,
              "job_posting_url": str | None, "title": str, "company_name": str | None}
         This is the shape the Streamlit UI and gap_analysis both consume
-        directly — no second lookup needed to render a citation.
+        directly, no second lookup needed to render a citation.
         """
         collection = self._get_collection()
         result = collection.query(query_embeddings=[query_embedding], n_results=top_k)
@@ -62,7 +79,7 @@ class VectorStore:
         metadatas = result["metadatas"][0]
 
         out = []
-        for text, distance, meta in zip(documents, distances, metadatas):
+        for text, distance, meta in zip(documents, distances, metadatas, strict=False):
             out.append({
                 "text": text,
                 "distance": distance,
@@ -80,7 +97,7 @@ class VectorStore:
         a posting's best-matching chunk; a per-job analysis needs all of
         it, or requirements in the other chunks are invisible."""
         result = self._get_collection().get(where={"job_id": str(job_id)})
-        rows = sorted(zip(result["ids"], result["documents"], result["metadatas"]),
+        rows = sorted(zip(result["ids"], result["documents"], result["metadatas"], strict=False),
                       key=lambda r: (r[2]["section"] != "description", int(r[0].rsplit("_", 1)[-1])))
         return [{
             "text": text, "distance": None, "job_id": meta["job_id"], "section": meta["section"],
@@ -89,7 +106,7 @@ class VectorStore:
         } for _, text, meta in rows]
 
     def count(self) -> int:
-        """Number of chunks currently indexed — used by build_index.py to
+        """Number of chunks currently indexed, used by build_index.py to
         report progress and by the Streamlit app to show a "index not
         built yet" message instead of silently returning nothing."""
         return self._get_collection().count()

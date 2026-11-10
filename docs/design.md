@@ -128,8 +128,8 @@ in Python and sent to the page, so both interfaces always match.
 | Real resumes, scanned or image-heavy PDFs | **Not tested.** All 20 resumes are synthetic; one two-column PDF and one DOCX table are covered | | | | |
 | Retrieval quality against labels | **Not measured.** No relevance labels exist yet | | | | |
 | Claim-check precision against labels | **Not measured.** "Correct on inspection" in the log is my reading, not an independent label set | | | | |
-| Sample index | 37.3 MB; fetched with checksum check and run through the full pipeline on 2 resumes | M3 Pro | 2 resumes | 2026-11-10 | Log, [sample-index](engineering-log.md#sample-index) |
-| Fresh-clone quick start | **Not run end to end.** Each step ran separately; the release asset is not published yet | | | | |
+| Sample index | 37.3 MB; published as release `sample-index-v1`, downloaded from GitHub with the checksum verified, and run through the full pipeline on 2 resumes | M3 Pro | 2 resumes | 2026-11-10 | Log, [sample-index](engineering-log.md#sample-index) |
+| Fresh-clone quick start | **Not run end to end.** Each step ran separately, including the sample-index download from the published release | | | | |
 
 ## Numbers and their sources
 

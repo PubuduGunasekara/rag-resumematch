@@ -32,9 +32,22 @@ def parse_resume(file_path: str | Path) -> str:
         raise ValueError(f"Unsupported resume format: {suffix} (expected .pdf or .docx)")
 
 
+class EncryptedPdfError(ValueError):
+    """The PDF needs a password to read."""
+
+
 def _parse_pdf(path: Path) -> str:
     from pypdf import PdfReader
     reader = PdfReader(str(path))
+    if reader.is_encrypted:
+        # Many "protected" PDFs only restrict editing and open with an
+        # empty password; only a real open-password is a failure.
+        try:
+            opened = reader.decrypt("")
+        except Exception:  # noqa: BLE001 - pypdf raises several types for unsupported encryption
+            opened = 0
+        if not opened:
+            raise EncryptedPdfError(f"PDF is password-protected: {path.name}")
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 

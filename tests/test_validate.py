@@ -84,7 +84,7 @@ def test_recipe_is_not_a_resume_but_can_be_checked_anyway(tmp_path):
              "egg and vanilla. Bake for 60 minutes until a tester comes out clean. Let it cool before slicing it."])
     e = rejected(p)
     assert e.code == "not_resume" and e.soft
-    assert ("We couldn't find contact details, section headings such as Experience or Education, "
+    assert ("It has no contact details, section headings such as Experience or Education, "
             "or dates for roles or studies.") in e.message and "check it anyway" in e.message
     text, _ = validate_resume(p, allow_unusual=True)   # the user's override
     assert "banana" in text

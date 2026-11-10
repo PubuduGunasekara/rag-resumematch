@@ -20,7 +20,7 @@ def job(tier="best"):
 
 def all_html():
     j = job()
-    report = JobReport([j], [LearnItem("Siemens NX", 1, False)], "Your closest match is RN ICU", "We found 1.", best=j)
+    report = JobReport([j], [LearnItem("Siemens NX", 1, False)], "Your closest match is RN ICU", "These are the 1 postings closest to your resume.", best=j)
     return "".join([render.header(report, 107528), render.best_fit(j), render.job_body(j),
                     render.learn_first(report.learn_first, 1), render.highlighted_resume(RESUME, ["ACLS, BLS"])])
 

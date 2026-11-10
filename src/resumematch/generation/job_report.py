@@ -3,8 +3,8 @@ best fit, potential fits, and not a match.
 
 Everything that decides a tier or a score is computed here in code from
 claims that passed check_claims. The LLM only proposes requirements; it
-never rates the candidate. A score is "6 of 8 requirements we could
-verify", which a user (or a grader) can audit line by line.
+never rates the candidate. A score is "6 of 8 requirements that could be
+verify", which a reader can audit line by line.
 
 UI-agnostic on purpose: Streamlit and any other front end render the
 same JobReport.
@@ -14,7 +14,15 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from resumematch.generation.gap_analysis import _BENEFIT, CitedClaim, GapAnalysisResult, _found, _mentions, _stem, key_terms
+from resumematch.generation.gap_analysis import (
+    _BENEFIT,
+    CitedClaim,
+    GapAnalysisResult,
+    _found,
+    _mentions,
+    _stem,
+    key_terms,
+)
 from resumematch.generation.text_clean import clean_generated
 from resumematch.preprocess.boilerplate import _REQUIREMENT_CUE, split_sentences
 
@@ -250,7 +258,7 @@ def assign_tiers(jobs: list[JobAnalysis]) -> JobAnalysis | None:
         else:
             job.tier = "potential"
             n = len(job.gaps)
-            job.reason = ("Everything we could check is on your resume." if job.checked and not n else
+            job.reason = ("Everything that could be checked is on your resume." if job.checked and not n else
                           f"{n} {'requirement' if n == 1 else 'requirements'} not found on your resume yet." if n else
                           "Few specific requirements could be checked for this one.")
     open_jobs = [j for j in jobs if j.tier != "no"]
@@ -279,13 +287,13 @@ def learn_first(jobs: list[JobAnalysis], limit: int = 5) -> list[LearnItem]:
     return items[:limit]
 
 
-NO_EVIDENCE_HEADLINE = "We couldn't connect this document to job requirements"
+NO_EVIDENCE_HEADLINE = "This document couldn't be connected to job requirements"
 
 
 def _headline(best: JobAnalysis | None, jobs: list[JobAnalysis]) -> tuple[str, str]:
     if not any(j.met or any(r.partly for r in j.gaps) for j in jobs):
         return NO_EVIDENCE_HEADLINE, (
-            f"We searched for the {len(jobs)} closest postings, but nothing they ask for could be confirmed in "
+            f"The {len(jobs)} closest postings were searched, but nothing they ask for could be confirmed in "
             "this document. If this is your resume, make sure it lists your skills, tools and experience in plain "
             "text. The postings are below so you can read them yourself.")
     others = sum(j.tier == "potential" for j in jobs)
@@ -298,7 +306,7 @@ def _headline(best: JobAnalysis | None, jobs: list[JobAnalysis]) -> tuple[str, s
     if blocked:
         parts.append(f"{blocked} {'asks' if blocked == 1 else 'ask'} for a credential your resume doesn't show")
     listed = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
-    summary = f"We found the {len(jobs)} postings closest to your resume. {listed[0].upper()}{listed[1:]}."
+    summary = f"These are the {len(jobs)} postings closest to your resume. {listed[0].upper()}{listed[1:]}."
     if best:
         company = f" at {best.company}" if best.company else ""
         return f"Your closest match is {best.title}{company}", summary

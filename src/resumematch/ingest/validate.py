@@ -1,4 +1,4 @@
-"""Is this upload a resume we can analyze? Checked before any search or
+"""Is this upload a resume that can be analyzed? Checked before any search or
 LLM call, so a wrong file gets a specific, plain answer instead of a
 traceback or a confident report about nothing.
 
@@ -104,11 +104,11 @@ def extract_text(path: str | Path) -> str:
     from resumematch.ingest.parse_resume import EncryptedPdfError, parse_resume
     try:
         return parse_resume(path)
-    except EncryptedPdfError:
-        raise ResumeRejected("locked", "This PDF is password-protected. Export an unlocked copy and upload that.")
-    except Exception:  # noqa: BLE001 - pypdf / python-docx / zipfile raise many unrelated types
+    except EncryptedPdfError as err:
+        raise ResumeRejected("locked", "This PDF is password-protected. Export an unlocked copy and upload that.") from err
+    except Exception as err:  # noqa: BLE001 - pypdf / python-docx / zipfile raise many unrelated types
         raise ResumeRejected("unreadable", "This file couldn't be opened. It may be damaged. "
-                                           "Export a fresh copy and try again.")
+                                           "Export a fresh copy and try again.") from err
 
 
 def resume_signals(text: str) -> ResumeSignals:
@@ -127,7 +127,7 @@ def check_text(text: str, allow_unusual: bool = False) -> ResumeSignals:
     """Layers 3 and 4. Returns the signals when the text passes."""
     signals = resume_signals(text)
     if signals.words < MIN_WORDS:
-        raise ResumeRejected("no_text", "We couldn't find enough text in this file. If it's a scan or a photo, "
+        raise ResumeRejected("no_text", "This file has too little text to read. If it's a scan or a photo, "
                                         "export your resume as a text PDF from Word or Google Docs.",
                              signals=signals.__dict__)
     if allow_unusual:
@@ -141,7 +141,7 @@ def check_text(text: str, allow_unusual: bool = False) -> ResumeSignals:
         missing = signals.missing()
         listed = (missing[0] if len(missing) == 1 else f"{missing[0]} or {missing[1]}" if len(missing) == 2
                   else ", ".join(missing[:-1]) + ", or " + missing[-1])
-        raise ResumeRejected("not_resume", f"This doesn't look like a resume. We couldn't find {listed}. "
+        raise ResumeRejected("not_resume", f"This doesn't look like a resume. It has no {listed}. "
                                            "If it is your resume, you can check it anyway.",
                              soft=True, signals=signals.__dict__)
     return signals

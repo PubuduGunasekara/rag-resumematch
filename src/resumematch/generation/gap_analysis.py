@@ -58,8 +58,10 @@ class CitedClaim:
 class GapAnalysisResult:
     matched: list[CitedClaim]      # passed every check in check_claims
     missing: list[CitedClaim]      # in the cited posting, and not plainly in the resume
+    # No longer requested from the model (no interface showed it, and it
+    # cost generation time); kept so callers and stored results still work.
     overall_summary: str
-    raw_response: str  # keep raw output for debugging/grading evidence
+    raw_response: str  # keep raw output for debugging
     # Claims (matched OR missing) that failed a check, each with .issue --
     # shown separately, never silently dropped, never presented as fact.
     unverified: list[CitedClaim] = field(default_factory=list)
@@ -85,7 +87,6 @@ Write each requirement using the excerpt's own words (e.g. "Kubernetes", "AWS La
 Only list requirements that the cited excerpt actually mentions.
 Do not list the same requirement twice. Keep each requirement under 8 words.
 excerpt is the number of the job posting excerpt that asks for the requirement.
-summary: a 2-3 sentence overall assessment.
 
 Respond with JSON only."""
 
@@ -121,9 +122,8 @@ def response_schema(num_excerpts: int, max_items: int = MAX_ITEMS) -> dict:
                     "required": ["requirement", "excerpt"],
                 },
             },
-            "summary": {"type": "string", "maxLength": 800},
         },
-        "required": ["matched", "missing", "summary"],
+        "required": ["matched", "missing"],
     }
 
 

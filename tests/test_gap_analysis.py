@@ -298,3 +298,11 @@ def test_perks_from_whole_postings_are_benefits(perk):
     c = claim(perk, kind="missing", excerpt=f"We offer {perk}.")
     check_claims([c], FULL_RESUME)
     assert c.issue == "an employer benefit, not a requirement"
+
+
+def test_model_is_not_asked_for_an_unused_summary():
+    # The free-text summary was generated on every call and shown nowhere.
+    from resumematch.generation.gap_analysis import build_prompt
+    schema = response_schema(num_excerpts=5)
+    assert "summary" not in schema["properties"] and schema["required"] == ["matched", "missing"]
+    assert "summary" not in build_prompt("resume", make_chunks()).lower().split("respond with json")[0].split("pick the most")[1]

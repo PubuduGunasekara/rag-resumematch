@@ -3,7 +3,12 @@ hand-built claims (no Ollama, no index)."""
 
 from resumematch.generation.gap_analysis import CitedClaim, GapAnalysisResult
 from resumematch.generation.job_report import (
-    JobAnalysis, Requirement, assign_tiers, build_report, classify_importance, learn_first,
+    JobAnalysis,
+    Requirement,
+    assign_tiers,
+    build_report,
+    classify_importance,
+    learn_first,
 )
 
 

@@ -1,4 +1,4 @@
-"""Minimal client for Ollama's local REST API. No SDK dependency —
+"""Minimal client for Ollama's local REST API. No SDK dependency:
 Ollama's HTTP API is small enough that `requests` is simpler than
 pulling in another library for this.
 """
@@ -20,13 +20,18 @@ class GenerationTruncatedError(ValueError):
         self.partial_response = partial_response
 
 
+DEFAULT_MODEL = "llama3.2:3b"
+
+
 class OllamaClient:
     def __init__(self, host: str | None = None, model: str | None = None):
-        # Falls back to .env.example's OLLAMA_HOST/OLLAMA_MODEL so the
-        # local (llama3.2:3b) vs. GCP (llama3.1:8b) profiles actually
-        # take effect without every call site having to pass them.
+        # OLLAMA_HOST / OLLAMA_MODEL from the environment (.env), else the
+        # defaults below. The default model is the one every measurement
+        # used and the README tells people to pull; it used to be
+        # llama3.1:8b, so a run without OLLAMA_MODEL set asked for a model
+        # nobody had pulled (see docs/engineering-log.md, model-default).
         self.host = host or os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-        self.model = model or os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+        self.model = model or os.environ.get("OLLAMA_MODEL", DEFAULT_MODEL)
 
     def generate(
         self,

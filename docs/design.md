@@ -1,5 +1,9 @@
 # Design Decisions
 
+The structured record of every experiment, failure and fix (problem, hypothesis, method,
+measured results, decision) is in [engineering-log.md](engineering-log.md). This file
+explains the design; the log is the evidence behind it.
+
 ## Scope and context
 
 Solo-built for CS6120 (NLP), Fall 2026. Proposal due Nov 16, final project

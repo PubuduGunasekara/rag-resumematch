@@ -1,0 +1,18 @@
+flowchart LR
+    A["Uploaded file"] --> B{"Do the bytes<br/>match the extension?"}
+    B -- "no" --> B1["Not a real PDF or Word file"]
+    B -- "yes" --> C{"Does it open?"}
+    C -- "locked" --> C1["Password-protected"]
+    C -- "damaged" --> C2["Couldn't be opened"]
+    C -- "yes" --> E{"40 words<br/>or more?"}
+    E -- "no" --> E1["Looks like a scan"]
+    E -- "yes" --> F{"2 of 3: headings,<br/>contact details,<br/>dated roles?"}
+    F -- "no" --> F1["Doesn't look like a resume<br/>(the user can continue)"]
+    F -- "yes" --> G["Continue to step 3"]
+
+    classDef reject fill:#FAF8F4,stroke:#9A4A3A,color:#9A4A3A
+    classDef soft fill:#FAF8F4,stroke:#A8742A,color:#7A5418
+    classDef done fill:#FFFFFF,stroke:#4A6B3A,stroke-width:2px,color:#1F1D1A
+    class B1,C1,C2,E1 reject
+    class F1 soft
+    class G done

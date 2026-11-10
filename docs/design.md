@@ -15,8 +15,8 @@ though one person wrote the initial version.
 
 The project spec requires "a database that is no less than 10k entries"
 and "clickable citation to the data source (article and passage)." A
-single resume and a single job posting can't satisfy either requirement
-— there's nothing to scale and nothing to cite into. Reframing the job-
+single resume and a single job posting can't satisfy either requirement:
+there's nothing to scale and nothing to cite into. Reframing the job-
 postings corpus (123,849 rows; 107,528 distinct postings indexed) as the indexed database, with the
 resume as the query, satisfies both: the corpus is large and real, and
 every retrieved result carries a `job_id` / `job_posting_url` that
@@ -25,7 +25,7 @@ resolves to an actual LinkedIn posting.
 ## Why no LangChain/LlamaIndex
 
 A RAG framework optimizes for not having to understand chunking,
-embedding, and retrieval — the opposite of what an NLP course rubric
+embedding, and retrieval, the opposite of what an NLP course rubric
 rewards. Writing these ~150-200 lines by hand means every design choice
 is explainable in a defense, not "whatever the framework defaults to."
 
@@ -34,12 +34,12 @@ is explainable in a defense, not "whatever the framework defaults to."
 - No dependency on a key that could be revoked or rate-limited before
   the deadline.
 - The spec explicitly requires "LLMs entirely local (i.e., on GCP or
-  metal) / native" — this isn't a preference, it's a requirement.
+  metal) / native". This isn't a preference, it's a requirement.
 - Reproducible for a grader without needing personal API credentials.
 
 ## Why ChromaDB over raw FAISS
 
-FAISS is index-only — no persistence, no metadata filtering, build that
+FAISS is index-only: no persistence, no metadata filtering, build that
 yourself. ChromaDB gives local file-based persistence and metadata
 filtering (needed for citations: job_id, section, url, title) for free,
 with no server process to run. At this data scale (chunks from 124k
@@ -54,7 +54,7 @@ reader wouldn't notice it. Assignment 3's edit-distance substitution
 logic (`probable_substitutes`/`min_edit_distance`) is reused directly,
 with the vocabulary built from the FULL job-posting corpus (so tech
 jargon like "faiss," "pytorch," "redis" survives as "known" rather than
-being "corrected" into something else) — the same generative mechanism
+being "corrected" into something else), the same generative mechanism
 from the coursework, applied to a genuinely different, useful problem.
 
 **What went wrong first, and the fix.** Run as-is (vocabulary from a
@@ -473,31 +473,31 @@ candidate, most of what a 3B model calls missing isn't.
 (scraper: [ArshKA/LinkedIn-Job-Scraper](https://github.com/ArshKA/LinkedIn-Job-Scraper)),
 with 100,000 additional postings contributed by `zoeyyuzou`. 123,849
 rows in `postings.csv` (version 13, pinned), plus linked `companies/companies.csv`,
-`benefits.csv`, `employee_counts.csv`. License: **CC BY-SA 4.0** —
+`benefits.csv`, `employee_counts.csv`. License: **CC BY-SA 4.0**:
 attribution required; any derivative/processed form distributed from
 this project must remain under the same license.
 
 Why this dataset specifically: `job_posting_url` makes citations verify
-against the live source, not just an opaque internal ID — directly
+against the live source, not just an opaque internal ID, which directly
 targets the rubric's "Verifiability" criterion. `description` and
 `skills_desc` give two independently citable text fields per posting.
 
 Downloaded via `kagglehub` at container-run time (not baked into the
 image), satisfying the spec's "AutomatedDownload" requirement.
-Requires `KAGGLE_USERNAME`/`KAGGLE_KEY` env vars — documented in
+Requires `KAGGLE_USERNAME`/`KAGGLE_KEY` env vars, documented in
 README, not committed (see `.gitignore`).
 
 ## Deployment: two profiles, one codebase, and the budget math
 
 - **Course demo** (`docker-compose.gcp.yml`): GCP VM, T4 GPU, $50
-  course credit. At ~$0.50-0.55/hr, that's ~90 hours total — the index
+  course credit. At ~$0.50-0.55/hr, that's ~90 hours total. The index
   is built LOCALLY (CPU, free) and `scp`'d to the VM rather than
   rebuilt there, so the VM only ever pays for LLM inference, not
   embedding 124k rows. `gcp/start.sh`/`gcp/stop.sh` exist specifically
   so stopping the VM is a one-command habit, not something to remember
   at 1am.
 - **Portfolio demo** (post-course, `docker-compose.local.yml` as the
-  base): a persistent GPU VM costs ~$350+/month — not viable
+  base): a persistent GPU VM costs ~$350+/month, not viable
   indefinitely. The plan is to redeploy to a cheap/free CPU-only host
   with a smaller quantized model after the course ends, not compete
   with course deadlines for that work now.
@@ -550,18 +550,18 @@ yet verified: the GCP profile itself (NVIDIA runtime, scp of the index).
   vocabulary, guard rails, 0 false corrections on the clean test resume,
   corrections shown in the UI with an on/off toggle, measured by
   `scripts/eval_query_correction.py`.
-- **Resolved — format drift / output length**: constrained decoding
+- **Resolved (format drift, output length)**: constrained decoding
   (JSON schema), see "Generating the gap analysis" above. 8/8 runs
   usable on the first attempt with llama3.2:3b.
-- **Resolved — over-claiming / contradictory gaps**: every claim is
+- **Resolved (over-claiming, contradictory gaps)**: every claim is
   checked from both sides (requirement in the cited posting, quote in
   the resume and on-topic, "missing" not plainly in the resume), with
   citation repair. Open: lexical checks miss synonyms (fails safe, to
   "unverified"); the model's summary is unchecked free text.
-- **Resolved — resume truncation**: the resume is now searched as
+- **Resolved (resume truncation)**: the resume is now searched as
   token-bounded sections fused with RRF (see "Why the resume is searched
   as several queries" above).
-- **Resolved — chunking / boilerplate / duplicates**: see "Chunking job
+- **Resolved (chunking, boilerplate, duplicates)**: see "Chunking job
   postings" above. EEO text 26.9% -> 3.0% of chunks; duplicate postings
   skipped; at most 2 postings per company in results. Open: one
   company's repeated "About us" text is still indexed.
@@ -569,6 +569,6 @@ yet verified: the GCP profile itself (NVIDIA runtime, scp of the index).
   the UI (straight from postings.csv's company_name column; the separate
   companies.csv join was removed as unnecessary).
 - Firewall/networking setup for the GCP endpoint (opening port 8501
-  publicly) isn't scripted yet — needs to happen during Phase 4 and be
+  publicly) isn't scripted yet. It needs to happen during Phase 4 and be
   tested well before Dec 6, not discovered for the first time on
   presentation day.

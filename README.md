@@ -1,31 +1,30 @@
 # ResumeMatch
 
-**Check a resume against 107,528 real job postings, with every claim verified.**
+ResumeMatch compares a resume with 107,528 real job postings. It finds the postings closest to
+the resume, checks each of their requirements against what the resume says, and shows what is
+there, what isn't, and what to work on before applying.
 
-ResumeMatch finds the job postings closest to a resume, checks each requirement against what
-the resume actually says, and shows what to work on before applying. It is a
-retrieval-augmented generation (RAG) system written from scratch: a local language model
-proposes requirements, and code verifies every one of them against the resume and the posting
-it cites before anything reaches the screen.
+It is a retrieval-augmented generation (RAG) system that I built from scratch for CS6120
+(Natural Language Processing) at Northeastern University in Fall 2026. A small language model
+runs locally and proposes requirements. Python code then checks each one against the resume and
+the posting it came from, and only the ones that pass are shown.
 
-Built for CS6120 (Natural Language Processing) at Northeastern University, Fall 2026.
-
-![The results page: the closest match with its requirement checklist](docs/images/report.png)
+![The results page for a sample accountant resume](docs/images/report.png)
 
 | | |
 |---|---|
-| **Corpus** | 123,849 LinkedIn postings, 107,528 after removing duplicates, 237,902 indexed chunks |
-| **Model** | `llama3.2:3b`, running locally through Ollama. No paid API, no data leaves the machine |
-| **Speed** | About 20 s per resume on a laptop (M3 Pro); retrieval itself takes 0.04 s |
-| **Front ends** | A Streamlit app (the course UI) and a Next.js site, sharing one Python pipeline |
-| **Tests** | 152 unit tests; every design change measured and recorded in the [engineering log](docs/engineering-log.md) |
+| Corpus | 123,849 LinkedIn postings, 107,528 after removing duplicates, split into 237,902 chunks |
+| Model | `llama3.2:3b` through Ollama, on the same machine. No paid API, and the resume never leaves the computer |
+| Speed | About 20 seconds per resume on an M3 Pro laptop. The search itself takes 0.04 seconds |
+| Interfaces | A Streamlit app (required for the course) and a Next.js site, both using the same Python code |
+| Tests | 152 unit tests. Each design change was measured first, and the results are in the [engineering log](docs/engineering-log.md) |
 
 ## Contents
 
 1. [Overview](#overview)
-2. [Step by step, from upload to result](#step-by-step-from-upload-to-result)
+2. [From upload to result](#from-upload-to-result)
 3. [Building the index](#building-the-index)
-4. [What the checks guarantee](#what-the-checks-guarantee)
+4. [What the checks rule out](#what-the-checks-rule-out)
 5. [Results so far](#results-so-far)
 6. [Running it](#running-it)
 7. [Project layout](#project-layout)
@@ -33,317 +32,262 @@ Built for CS6120 (Natural Language Processing) at Northeastern University, Fall 
 
 ## Overview
 
-The resume is the query; the job postings are the indexed documents. The index is built once,
-offline. Each upload then runs through the steps below.
+The resume is the search query, and the job postings are the documents being searched. The
+postings are indexed once, ahead of time. After that, each uploaded resume goes through the ten
+steps in the lower half of the diagram.
 
-```mermaid
-flowchart TD
-    subgraph OFFLINE["Built once, offline: scripts/build_index.py"]
-        direction LR
-        D1["Download 123,849 postings<br/>Kaggle, pinned v13"] --> D2["Remove 16,314 duplicates<br/>and 402 boilerplate sentences"]
-        D2 --> D3["Split into sentence-aware<br/>chunks of up to 300 words"]
-        D3 --> D4["Embed with bge-small<br/>384 dimensions"]
-        D4 --> D5[("ChromaDB<br/>237,902 chunks<br/>with citation metadata")]
-    end
+![Overview: the offline index build, then the ten steps for each upload](docs/images/diagram-overview.png)
 
-    subgraph REQUEST["Every upload"]
-        U1["1 Upload<br/>PDF or Word"] --> U2{"2 Validate<br/>is it a readable resume?"}
-        U2 -- "no" --> X["Plain message<br/>soft cases offer Check it anyway"]
-        U2 -- "yes" --> U3["3 Fix typos<br/>for the search only"]
-        U3 --> U4["4 Split into sections<br/>each fits the 512-token model"]
-        U4 --> U5["5 Search each section<br/>fuse ranks per posting"]
-        U5 --> U6["6 Reduce the top 5 postings<br/>to their requirement sentences"]
-        U6 --> U7["7 One call to the local LLM<br/>JSON schema enforced"]
-        U7 --> U8{"8 Check every claim<br/>in code"}
-        U8 -- "fails" --> R["Rejected with a reason<br/>shown in How this was checked"]
-        U8 -- "passes" --> U9["9 Build the per-job report<br/>tiers, checklists, what to work on"]
-        U9 --> U10["10 Show the result<br/>Streamlit or Next.js"]
-    end
+The model is small enough to run on a laptop, which keeps the project free and private, but it
+makes mistakes a reader would notice: it misquotes the resume, cites the wrong posting, and lists
+employee benefits as skills. So the model never decides anything on its own. It proposes, and
+the code checks. Rankings and verdicts are computed in code from things that can be verified.
 
-    OFFLINE -. "searched in steps 5 and 6" .-> REQUEST
-```
+## From upload to result
 
-The main idea: **the model suggests, the code decides.** A 3B model is fast and free to run
-locally, but it misquotes, cites the wrong posting, and lists perks as skills. So nothing it
-says is shown until code has confirmed it against the source text. Rankings and verdicts are
-computed in code, never asked of the model.
-
-## Step by step, from upload to result
-
-Each step names the file that implements it, so the README doubles as a map of the code.
+Each step lists the files that implement it.
 
 ### 1. Upload
 
-**What happens.** The user drops a PDF or Word file onto the page. The browser checks the
-extension before uploading. The server then checks it again, refuses empty files and files
-over 5 MB, and runs one analysis at a time: a second request while one is running gets a
-clear "try again in a minute" instead of a silent queue, because a local model on one GPU
-gets slow for everyone if it serves two at once.
+The user drops a PDF or Word file on the page. The browser checks the file extension first, and
+the server checks it again. The server also turns away empty files and anything over 5 MB, and it
+runs one analysis at a time. If a second resume arrives while one is being checked, that person
+is told to try again in a minute. A local model on one GPU slows down for everyone when it
+serves two requests at once, so a clear message is better than a hidden queue.
 
-**Where.** `web/app/page.tsx`, `src/resumematch/api/app.py`, `src/resumematch/frontend/streamlit_app.py`
+Files: `web/app/page.tsx`, `src/resumematch/api/app.py`, `src/resumematch/frontend/streamlit_app.py`
 
-### 2. Validate: is this a resume we can read?
+### 2. Check that the file is a readable resume
 
-**What happens.** Before any model is loaded or called, the file goes through four layers. The
-first one that fails decides the message.
+This happens before any model is loaded. The file goes through four checks, and the first one
+that fails decides what the user is told.
 
-```mermaid
-flowchart LR
-    A["File"] --> B{"Bytes match<br/>the extension?"}
-    B -- "no" --> B1["Not a real PDF / Word file"]
-    B -- "yes" --> C{"Opens?"}
-    C -- "locked" --> C1["Password-protected:<br/>export an unlocked copy"]
-    C -- "damaged" --> C2["Couldn't be opened"]
-    C -- "yes" --> E{"40+ words<br/>of text?"}
-    E -- "no" --> E1["Looks scanned:<br/>export a text PDF"]
-    E -- "yes" --> F{"2 of 3 resume signals:<br/>headings, contact details,<br/>dated roles?"}
-    F -- "no" --> F1["Doesn't look like a resume<br/>or looks like a job posting<br/>(Check it anyway)"]
-    F -- "yes" --> G["Continue"]
-```
+![Upload validation](docs/images/diagram-validation.png)
 
-**Why structure and not similarity.** The obvious approach would be to accept anything that
-resembles job-related text. Measured, that fails exactly where it matters: a cover letter
-(similarity 0.710) and a job posting (0.806) scored *higher* than every real resume (0.556 to
-0.687). Structure separates them cleanly: resumes have section headings, contact details and
-dated roles; those documents don't. The last layer is a warning, not a block, because a
-heuristic should never stop a real person with an unusually formatted resume.
+My first idea was to accept anything that looked similar to job postings. When I measured it,
+that idea failed in exactly the cases that matter. A cover letter scored 0.710 and a job posting
+scored 0.806, both higher than every real resume I tested (0.556 to 0.687). They are written in
+the same language as the postings. What does separate them is structure: resumes have section
+headings, contact details and dates for each role, and those documents don't. The last check
+shows a warning with a "Check it anyway" button instead of blocking, because an unusually
+formatted resume could miss the signals, and blocking a real person's resume would be worse than
+letting them continue.
 
-**Where.** `src/resumematch/ingest/validate.py`, `src/resumematch/ingest/parse_resume.py`
+Files: `src/resumematch/ingest/validate.py`, `src/resumematch/ingest/parse_resume.py`
 
-### 3. Fix typos, for the search only
+### 3. Fix typos for the search
 
-**What happens.** Words the corpus has never seen are corrected by edit distance against a
-vocabulary of 159,808 words built from every posting. This is the autocorrect from
-Assignment 3, adapted with guard rails learned from false corrections: short words, acronyms
-and mixed-case words are never changed, two-edit corrections are allowed only on long words,
-and capitalized words in mid-line (often names) get one-edit fixes only. That last rule exists
-because "Midstate" was once corrected to "Mistake". The corrected text is used only for the
-search; the model and the checks read the resume exactly as written, and every change is
-listed on the results page.
+Words that never appear in the corpus are corrected by edit distance against a 159,808-word
+vocabulary built from all the postings. This is the autocorrect from Assignment 3, with rules
+added after it made real mistakes. Words shorter than four letters, acronyms and mixed-case words
+are left alone. Two-letter edits are only allowed on words of eight letters or more.
+Capitalized words in the middle of a line are often names, so they only get one-letter fixes.
+That rule came from the corrector turning the company name "Midstate" into "Mistake".
 
-**Why.** Typos and PDF extraction artifacts change which postings come back. With 10% of
-words damaged, correction raised overlap with the clean result from 0.60 to 0.86 up to 0.94 to
-1.00, with zero false corrections on four clean resumes.
+The corrected text is used only for the search. The model and the checks read the resume as the
+person wrote it, and every change is listed on the results page. With 10% of the words damaged,
+correction raised the overlap with the clean search results from 0.60 to 0.86 up to 0.94 to 1.00,
+and it made no false corrections on four clean resumes.
 
-**Where.** `src/resumematch/preprocess/query_correction.py`
+File: `src/resumematch/preprocess/query_correction.py`
 
 ### 4. Split the resume into sections
 
-**What happens.** The resume is split at its headings (a list of common headings, ALL CAPS
-lines, and Title Case lines containing a heading word such as "Work History"). Fragments under
-12 words are merged forward, and any section longer than 480 tokens is split evenly at line
-breaks. A resume with no detectable headings falls back to even, fixed-size windows.
+The resume is split at its headings: common names like Experience and Skills, lines in capitals,
+and short capitalized lines that contain a heading word, such as "Work History". Pieces under 12
+words are merged into the next section, and any section over 480 tokens is divided evenly at line
+breaks. A resume without headings is split into even windows instead.
 
-**Why.** The embedding model reads at most 512 tokens and silently drops the rest. Embedded
-as one query, a 1,015-token test resume lost its entire experience and skills sections: the
-search saw 50% of it, without any error. Searched as sections, it sees 100%, and the page can
-say which part of the resume matched each posting.
+The reason is a limit of the embedding model: it reads 512 tokens and silently ignores the rest.
+When I embedded a 1,015-token test resume as a single query, the search saw only the first half,
+and the experience and skills sections were never used. There was no error. Searching section by
+section covers the whole resume, and it lets the page show which part of the resume matched each
+posting.
 
-**Where.** `src/resumematch/preprocess/resume_sections.py`
+File: `src/resumematch/preprocess/resume_sections.py`
 
-### 5. Search and fuse
+### 5. Search and combine the results
 
-**What happens.** Each section is embedded with `bge-small-en-v1.5` and retrieves its 30
-nearest chunks from ChromaDB. The per-section rankings are combined per posting with
-reciprocal rank fusion: each posting scores the sum of 1 / (60 + its rank) across sections, so
-a posting that several sections agree on beats one that a single section ranks highly. At
-most two postings per company are kept, then the top 5.
+Each section is embedded with `bge-small-en-v1.5` and retrieves its 30 closest chunks from
+ChromaDB. The section results are combined per posting with reciprocal rank fusion. A posting
+gets 1 / (60 + its rank) from each section and the scores are added up, so a posting that several
+sections agree on ranks above one that a single section likes. At most two postings per company
+are kept, so one employer's near-identical listings can't fill the results, and the top five go
+on to the next step.
 
-**Why.** Rank fusion needs no score calibration between sections and has one standard
-parameter. The company cap stops one employer's near-identical listings from filling the
-results.
+Files: `src/resumematch/retrieval/embedder.py`, `vector_store.py`, `fusion.py`
 
-**Where.** `src/resumematch/retrieval/embedder.py`, `vector_store.py`, `fusion.py`
+### 6. Keep the requirement sentences
 
-### 6. Reduce each posting to its requirements
+The search returns the best-matching chunk of each posting, but a requirement can be in any part
+of it, so the remaining chunks are fetched too. Sentences about the employer, such as benefits,
+mission statements and "we offer", are removed. Sentences that state requirements ("must",
+"required", "preferred", "years of experience", "degree") are kept first, and each posting is
+trimmed to about 260 words so that all five fit in one prompt.
 
-**What happens.** Search returns each posting's best-matching chunk, but the requirements can
-be anywhere in it, so all of each posting's chunks are fetched. Sentences about the employer
-(perks, mission statements, "we offer") are dropped, sentences with requirement cues
-("must", "required", "preferred", "experience", "degree") are kept first, and each posting is
-capped at about 260 words so all five fit in one prompt.
+File: `requirement_excerpt` in `src/resumematch/generation/job_report.py`
 
-**Where.** `requirement_excerpt` in `src/resumematch/generation/job_report.py`
+### 7. Ask the local model
 
-### 7. One call to the local model
+The five postings and the resume go to `llama3.2:3b` in one prompt. The postings come first,
+numbered, and the resume comes last between two markers, so the model can tell which text
+describes the candidate. The model returns up to 12 requirements the resume meets and 12 it
+doesn't. Each one names the posting it came from, and each match includes a quote from the
+resume.
 
-**What happens.** The five excerpts and the resume go to `llama3.2:3b` in a single prompt:
-postings first, numbered, and the resume last, fenced between markers so the model can tell
-which text describes the candidate. The model returns up to 12 matched and 12 not-found
-requirements, each citing a posting by number, with matched ones quoting the resume. Decoding
-is constrained by a JSON schema, so the output always parses and a citation outside 1 to 5
-cannot be generated. Temperature is 0.2 and the context window is set explicitly to 8,192
-tokens (Ollama's default of 4,096 was 96% full on a real prompt and would silently drop text).
-An unusable answer is retried once with a reminder.
+The output format is enforced with a JSON schema, so the answer always parses and the model
+can't cite a posting number outside 1 to 5. The temperature is 0.2. The context window is set to
+8,192 tokens because Ollama's default of 4,096 was 96% full on a real prompt, and anything beyond
+the limit is cut without warning. If an answer still can't be used, the model is asked once more.
 
-**Why one call and not one per job.** Measured: five per-job calls took 60 to 68 s and filled
-the checklists with company blurbs ("Best Place to Work"). One pooled call takes 16 to 21 s,
-and since every claim already cites a posting, grouping claims by posting gives per-job
-checklists at no extra cost. Asking for requirements "from every excerpt" doubled per-job
-coverage on two of three resumes.
+I first tried one call per posting. It took 60 to 68 seconds and the results included company
+slogans like "Best Place to Work". One call for all five postings takes 16 to 21 seconds, and
+because each claim already names its posting, the claims can be sorted into per-posting lists
+afterwards. Asking the model to take requirements from every posting doubled the number of
+postings with results on two of the three test resumes.
 
-**Where.** `src/resumematch/generation/gap_analysis.py`, `ollama_client.py`
+Files: `src/resumematch/generation/gap_analysis.py`, `ollama_client.py`
 
-### 8. Check every claim in code
+### 8. Check each claim
 
-**What happens.** Each claim the model makes goes through these checks. A claim that fails is
-removed and listed, with its reason, in the "How this was checked" panel.
+Every claim from the model goes through the checks below. A claim that fails is dropped from the
+results and listed, with the reason, under "How this was checked".
 
-```mermaid
-flowchart TD
-    A["Claim from the model"] --> B{"Specific enough?<br/>not filler, not cut off"}
-    B -- "no" --> X1["Rejected: vague or incomplete"]
-    B -- "yes" --> C{"About the candidate?<br/>not a perk or a policy"}
-    C -- "no" --> X2["Rejected: employer benefit or statement"]
-    C -- "yes" --> D{"Does the cited posting<br/>mention it?"}
-    D -- "no, but another does" --> D1["Citation moved to that posting"]
-    D -- "no posting does" --> X3["Rejected: not in any posting"]
-    D -- "yes" --> E{"Claimed as shown<br/>or not found?"}
-    D1 --> E
-    E -- "shown" --> F{"Is the quote really<br/>in the resume, and about<br/>this requirement?"}
-    F -- "no" --> X4["Rejected: quote not in resume<br/>or off-topic"]
-    F -- "yes" --> OK1["Kept as Shown"]
-    E -- "not found" --> G{"Does the resume<br/>contain all of it?"}
-    G -- "yes" --> X5["Rejected: it is on the resume"]
-    G -- "no" --> OK2["Kept as Not found<br/>or Partly shown"]
-```
+![The checks applied to each claim](docs/images/diagram-checks.png)
 
-Matching is done on normalized text (case, punctuation and line breaks ignored), with plurals
-folded ("certifications" matches "certification") and a short synonym list so that
-"advanced cardiac life support" matches "ACLS" and "critical care" matches "intensive care
-unit". The model's own wording is cleaned of em dashes and emoji; quotes from the resume and
-postings are always shown exactly as written.
+The comparisons ignore case, punctuation and line breaks, treat plurals as the same word, and
+use a short list of equivalent terms, so "advanced cardiac life support" matches "ACLS" and
+"critical care" matches "intensive care unit". Text the model wrote is cleaned of long dashes and
+emoji. Quotes from the resume and the postings are always shown exactly as written.
 
-**Why.** Every rule here started as a real failure in testing: the model quoted posting text
-as if it were the resume, matched "Java" to a posting that never mentions Java, listed "AWS" as
-missing from a resume that lists AWS, and listed "403(b) retirement plan" and "Child care" as
-skills to learn. An earlier attempt to fix the benefits by instructing the model ("never list
-what the employer offers") was measured and rejected: it cut real findings from 2.8 to 0.2 per
-run without reducing the benefit claims at all.
+Each of these checks comes from a mistake I saw in testing. The model quoted posting text as if
+it were the resume, matched "Java" to a posting that never mentions Java, said a resume was
+missing AWS when it listed AWS, and suggested "403(b) retirement plan" and "Child care" as skills
+to learn. I tried fixing the benefits by telling the model not to list them, and measured it:
+real findings dropped from 2.8 to 0.2 per run, and the benefits kept appearing. Filtering them in
+code works.
 
-**Where.** `check_claims` in `src/resumematch/generation/gap_analysis.py`, `text_clean.py`
+Files: `check_claims` in `src/resumematch/generation/gap_analysis.py`, `text_clean.py`
 
-### 9. Build the per-job report
+### 9. Build the report for each posting
 
-**What happens.** The verified claims are grouped by the posting they cite. For each
-requirement the report works out:
+The checked claims are grouped by posting. For each requirement the report records:
 
-- **Status:** *Shown* (with the resume quote), *Partly shown* (the resume has at least two of
-  its key words, which are listed), or *Not found on your resume*.
-- **Importance:** *required* or *preferred*, read from the clause of the posting that states
-  it ("BLS required; ACLS preferred" gives each its own answer).
-- **Credential or not:** degrees and licenses are flagged, because rewording a resume can't
-  add one.
-- **Soft skills** such as "clinical judgment" are listed separately and not counted, since no
-  resume line can confirm or refute them.
+- its status: shown (with the quote from the resume), partly shown (the resume has at least two
+  of its key words, which are listed), or not found on the resume
+- whether the posting says it is required or preferred, read from the part of the sentence that
+  mentions it, so "BLS required; ACLS preferred" gives each one the right label
+- whether it is a credential, like a degree or a license, which can't be added by rewording a
+  resume
+- whether it is a general trait like "clinical judgment". These are listed separately and not
+  counted, since no line of a resume can confirm or rule them out
 
-Jobs are then placed in tiers:
+The postings are then sorted into three groups:
 
-| Tier | Rule |
+| Group | Rule |
 |---|---|
-| **Closest match** | The best-ranked posting by retrieval that doesn't ask for a missing required credential |
-| **Also worth a look** | Every other posting without such a gap |
-| **Not a match right now** | Asks for a required degree or license the resume doesn't show; the card says which |
+| Closest match | The highest-ranked posting from the search that doesn't ask for a missing required credential |
+| Also worth a look | The other postings without a missing required credential |
+| Not a match right now | Asks for a required degree or license that isn't on the resume. The card names it |
 
-Across the postings, gaps are grouped by meaning ("Cardiogenic shock" and "Cardiogenic shock
-experience" are one item) into **What to work on**, ordered by how many postings ask for it.
-If nothing at all could be confirmed, the report says "We couldn't connect this document to
-job requirements" instead of naming a closest match.
+Missing requirements that come up in several postings are combined ("Cardiogenic shock" and
+"Cardiogenic shock experience" count once) and listed under "What to work on", most frequent
+first. If nothing at all could be confirmed, the page says it couldn't connect the document to
+the job requirements, and no posting is presented as the closest match.
 
-**Why tiers don't come from a score.** An early version ranked jobs by the share of
-requirements met. It labelled an RN ICU posting "not a match" (1 of 9) for a nurse with six
-years of ICU experience, because the model listed granular items ("experience in renal
-failure") that a resume never names word for word. A word check can confirm something is on a
-resume but can't prove it's absent, so a "met" ratio is not a fair verdict. Retrieval
-similarity plus a hard-credential gate is.
+I started with a score based on the share of requirements met, and it labelled an RN ICU posting
+"not a match" (1 of 9) for a nurse with six years in intensive care. The model had listed very
+specific items such as "experience in renal failure", which a resume rarely names word for word.
+A word check can confirm that something is on a resume, but it can't prove that something is
+missing, so the share of matches wasn't a fair measure. The groups now come from the search
+ranking plus the credential check.
 
-**Where.** `src/resumematch/generation/job_report.py`
+File: `src/resumematch/generation/job_report.py`
 
 ### 10. Show the result
 
-**What happens.** Both front ends render the same report, and every sentence a user reads is
-produced by the Python code, so they always agree:
+Both interfaces show the same report, and all the wording comes from the Python code, so they
+always match. The page has:
 
-- The **closest match** with location, work type, seniority and pay where the posting lists
-  them, a requirement checklist with the resume quote for each item, and a link to the
-  original posting.
-- **Other postings** as rows that expand into the same checklist.
-- **What to work on** across all five postings.
-- **The resume itself**, with the evidence for the selected job highlighted. Highlight
-  positions are computed in Python and sent to the page, so both front ends mark exactly the
-  same text.
-- **How this was checked:** the resume sections searched, the postings retrieved and which
-  sections found them, every typo fix, and every rejected claim with its reason.
+- the closest match, with location, work type, seniority and pay when the posting lists them,
+  the requirement list with resume quotes, and a link to the original posting
+- the other postings as rows that open into the same list
+- "What to work on" across all five postings
+- the resume, with the evidence for the selected posting highlighted (the positions are worked
+  out in Python, so both interfaces highlight the same text)
+- "How this was checked": the resume sections searched, the postings found and which sections
+  found them, every typo fix, and every claim that was dropped, with the reason
 
 The uploaded file is deleted as soon as the check finishes.
 
-**Where.** `src/resumematch/frontend/render.py` and `streamlit_app.py`; `src/resumematch/api/app.py`
-(JSON for the site); `web/components/Report.tsx`
+Files: `src/resumematch/frontend/render.py` and `streamlit_app.py`, `src/resumematch/api/app.py`,
+`web/components/Report.tsx`
 
-![A posting expanded into its checklist: shown items quote the resume, gaps read Not found](docs/images/evidence.png)
+![A posting opened to show its requirements](docs/images/evidence.png)
 
-![The resume as uploaded, with the evidence for the selected posting highlighted](docs/images/resume.png)
+![The resume with the evidence for the selected posting highlighted](docs/images/resume.png)
 
 ## Building the index
 
-Run once with `scripts/build_index.py` (about 40 minutes on a laptop for the full corpus):
+`scripts/build_index.py` builds the index once. The full corpus takes about 40 minutes on a
+laptop.
 
-1. **Download** the dataset with `kagglehub`, pinned to version 13 (an unpinned download broke
-   once when the file layout changed between versions).
-2. **Skip exact duplicates:** 16,314 postings whose normalized description was already seen.
-3. **Find boilerplate:** a sentence that appears in at least 20 postings from at least 10
-   different companies, or that matches legal patterns (equal opportunity, accommodation), is
-   removed, unless it states a requirement such as a degree or a lifting limit. This found 402
-   sentences and cut the share of chunks containing equal opportunity text from 26.9% to 2.9%.
-4. **Chunk:** whole sentences packed into chunks of up to 300 words with about 50 words of
-   overlap, so chunks don't end mid-sentence (68.4% end at a sentence boundary, up from 25.9%).
-   Short skills lists are folded into the description.
-5. **Embed and store** each chunk in ChromaDB with its job ID, title, company and posting URL,
-   so every result can be cited without a second lookup.
-6. **Write side files** to `data/processed/`: the typo vocabulary, the boilerplate list, and
-   posting details (location, work type, seniority, pay) for the job cards. A
-   `BUILD_COMPLETE.json` marker is written last, so an interrupted build is never mistaken
-   for a finished one.
+1. Download the dataset with `kagglehub`, pinned to version 13. The file layout changed between
+   versions once, which broke an unpinned download.
+2. Skip exact duplicates: 16,314 postings whose description had already appeared.
+3. Remove boilerplate. A sentence is boilerplate if it appears in at least 20 postings from at
+   least 10 companies, or if it matches legal wording such as equal opportunity statements,
+   unless it states a requirement like a degree or a lifting limit. This found 402 sentences and
+   lowered the share of chunks with equal opportunity text from 26.9% to 2.9%.
+4. Split each posting into chunks of whole sentences, up to 300 words each, with about 50 words
+   of overlap. 68.4% of chunks now end at the end of a sentence, up from 25.9%. Short skill lists
+   are joined to the description.
+5. Embed each chunk and store it in ChromaDB with the job ID, title, company and posting URL, so
+   every result can be linked to its source without another lookup.
+6. Write the supporting files to `data/processed/`: the typo vocabulary, the boilerplate list,
+   and the posting details used on the result cards. A `BUILD_COMPLETE.json` file is written
+   last, so an interrupted build is never mistaken for a finished one.
 
-## What the checks guarantee
+## What the checks rule out
 
-- A requirement marked **Shown** has an exact quote from the resume that mentions it.
-- Every requirement listed is asked for by the posting it is shown under.
-- Employer benefits, company descriptions, legal statements and cut-off phrases are never
-  presented as requirements.
-- A job is only called **not a match** when it asks for a required credential the resume
-  doesn't show; gaps are worded as *not found on your resume*, never "missing".
-- A file that isn't a readable resume gets a plain explanation before any model runs.
+- A requirement is only marked as shown when the resume contains a quote that mentions it.
+- Every requirement listed under a posting is one that posting asks for.
+- Employee benefits, company descriptions, legal statements and half-finished phrases are never
+  listed as requirements.
+- A posting is only called "not a match" when it requires a degree or license that isn't on the
+  resume. Gaps are described as "not found on your resume".
+- A file that isn't a readable resume gets an explanation before any model runs.
 
-What they don't guarantee: the checks compare wording, so a requirement the resume describes
-in different words can still appear as *not found*. The page says so, and the user decides.
+The checks compare wording. If a resume describes a skill in different words, the requirement can
+still show as not found. The page says this, and the reader decides.
 
 ## Results so far
 
-All numbers are measured; methods and the scripts that produced them are in the
-[engineering log](docs/engineering-log.md), which also records the ideas that were rejected.
+The methods, numbers and the scripts behind them are in the
+[engineering log](docs/engineering-log.md), including the ideas that didn't work.
 
-| What | Result |
+| Measure | Result |
 |---|---|
-| Resume text the search sees | 100%, up from 50% for a 1,015-token resume searched as one query |
-| Retrieval with 10% injected typos, correction off / on | 0.60 to 0.86 / 0.94 to 1.00 overlap with the clean result |
-| False typo corrections on clean resumes | 0, across 4 resumes from 4 fields |
+| Share of the resume the search uses | 100%, up from 50% for a 1,015-token resume searched as one query |
+| Search results with 10% of words misspelled, without and with correction | 0.60 to 0.86 and 0.94 to 1.00 overlap with the clean results |
+| Wrong corrections on clean resumes | 0, across four resumes from four fields |
 | Chunks containing legal boilerplate | 2.9%, down from 26.9% |
 | Model answers that parse on the first try | 100% with the JSON schema |
-| Time per resume, warm (M3 Pro, native Ollama) | 16 to 21 s; retrieval alone 0.04 s |
-| Wrong files: fake, damaged, locked, scanned, not a resume | Each gets a specific message; all 4 test resumes pass |
+| Time per resume (M3 Pro, Ollama on the GPU) | 16 to 21 seconds, of which the search is 0.04 |
+| Wrong files: renamed, damaged, locked, scanned, not a resume | Each gets its own message. All four test resumes pass |
 
-**Known limits.** The 3B model's checklists are thin for some postings and vary between runs.
-Word checks miss synonyms outside the synonym list. Retrieval alone doesn't tell a pediatric
-posting from an adult one. And so far everything is measured on synthetic resumes, with real
-PDFs in unusual layouts still to test.
+Known limits: the model finds only a few requirements for some postings, and the results change
+somewhat between runs. The word checks miss equivalent terms that aren't in the list (a resume
+that says NetSuite is shown as missing "ERP system"). The search can't tell a pediatric posting
+from an adult one. So far the testing uses synthetic resumes, and real PDFs with unusual layouts
+still need to be tried.
 
 ## Running it
 
 ### Setup
 
 ```bash
-cp .env.example .env   # add KAGGLE_USERNAME and KAGGLE_KEY (Kaggle > Settings > API)
+cp .env.example .env   # add KAGGLE_USERNAME and KAGGLE_KEY from Kaggle > Settings > API
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
 ```
@@ -351,20 +295,20 @@ python -m venv .venv
 ### Build the index (once)
 
 ```bash
-.venv/bin/python scripts/build_index.py              # full corpus, about 40 min
+.venv/bin/python scripts/build_index.py              # full corpus, about 40 minutes
 .venv/bin/python scripts/build_index.py --limit 2000 # small index for development
 ```
 
-For an index built before posting details existed, add them in a few seconds:
+An index built before the posting details existed can get them in a few seconds:
 
 ```bash
 .venv/bin/python scripts/build_posting_details.py
 ```
 
-### Start the local model
+### Start the model
 
 ```bash
-brew install ollama && brew services start ollama   # macOS: runs on the Metal GPU
+brew install ollama && brew services start ollama   # macOS, runs on the Metal GPU
 ollama pull llama3.2:3b
 ```
 
@@ -377,7 +321,8 @@ ollama pull llama3.2:3b
 
 ### Next.js site
 
-Two processes: the Python API, and the web server, which forwards `/api` to it.
+The site needs two processes: the Python API, and the web server, which passes `/api` requests
+to it.
 
 ```bash
 .venv/bin/uvicorn resumematch.api.app:app --host 127.0.0.1 --port 8000
@@ -388,37 +333,37 @@ cd web && npm install && npm run dev
 # open http://localhost:3100
 ```
 
-Set `API_URL` if the API runs somewhere else (default `http://127.0.0.1:8000`). The API has
-`GET /api/health` and `POST /api/analyze` (multipart `file`, optional `correction` and
-`allow_unusual`); errors return `{"detail": {"code", "message", "soft"}}`, and interactive
-docs are at `http://127.0.0.1:8000/api/docs`.
+Set `API_URL` if the API runs somewhere else (the default is `http://127.0.0.1:8000`). The API
+has `GET /api/health` and `POST /api/analyze` (a multipart `file`, plus optional `correction` and
+`allow_unusual` fields). Errors come back as `{"detail": {"code", "message", "soft"}}`, and the
+interactive API docs are at `http://127.0.0.1:8000/api/docs`.
 
 ### Docker (Streamlit app)
 
 ```bash
-# App in Docker, model in native Ollama on the Metal GPU: about 11 s per resume
+# App in Docker, model in Ollama on the Mac's GPU: about 11 seconds per resume
 OLLAMA_HOST_FOR_APP=http://host.docker.internal:11434 docker compose -f docker-compose.local.yml up
 
-# Everything in Docker, CPU only on a Mac: about 37 s per resume
+# Everything in Docker, CPU only on a Mac: about 37 seconds per resume
 docker compose -f docker-compose.local.yml up --build
 ```
 
-On start, the container waits for Ollama, pulls the model if needed, and reuses `./chroma_db`
-and `./data/processed` when they hold a complete index; otherwise it builds one. Both folders
-are mounted from the host, so the index is built once. `.env` supplies the Kaggle credentials
-to Compose and is never copied into the image. Docker currently covers the Streamlit app; the
-API and the Next.js site run as shown above.
+When the container starts, it waits for Ollama, downloads the model if needed, and reuses
+`./chroma_db` and `./data/processed` if they hold a complete index. Otherwise it builds one. Both
+folders are mounted from the host, so the index is only built once. Compose reads the Kaggle
+credentials from `.env`, which is never copied into the image. Docker covers the Streamlit app
+for now. The API and the Next.js site run as shown above.
 
 ### GCP (course demo on a GPU)
 
 ```bash
 source .env
 ./gcp/start.sh
-# On the VM: install the NVIDIA container toolkit and Docker Compose, clone this repo, and
-# copy the locally built index instead of rebuilding it on GPU hours:
+# On the VM: install the NVIDIA container toolkit and Docker Compose, clone this repository, and
+# copy over the index built locally instead of rebuilding it on paid GPU time:
 #   gcloud compute scp --recurse chroma_db data/processed <vm-name>:~/resumematch/ --zone=<zone>
 docker compose -f docker-compose.gcp.yml up --build -d
-./gcp/stop.sh   # every time; the $50 credit is the whole budget
+./gcp/stop.sh   # run this every time; the $50 credit is the whole budget
 ```
 
 ### Tests and evaluation
@@ -429,8 +374,8 @@ docker compose -f docker-compose.gcp.yml up --build -d
 .venv/bin/python scripts/eval_resume_coverage.py RESUME.pdf [--swap nursing|software]
 ```
 
-Synthetic test resumes from three fields (nursing, accounting, mechanical engineering) are in
-`eval/resumes/`. They describe fictional people.
+Synthetic resumes from three fields (nursing, accounting and mechanical engineering) are in
+`eval/resumes/`. The people in them are fictional.
 
 ## Project layout
 
@@ -440,29 +385,31 @@ src/resumematch/
   preprocess/    chunker.py, boilerplate.py, resume_sections.py, query_correction.py
   retrieval/     embedder.py, vector_store.py, fusion.py (reciprocal rank fusion)
   generation/    ollama_client.py, gap_analysis.py (prompt, schema, claim checks),
-                 job_report.py (per-job report), text_clean.py
-  frontend/      streamlit_app.py, render.py (results page HTML)
+                 job_report.py (report per posting), text_clean.py
+  frontend/      streamlit_app.py, render.py (HTML for the results page)
   api/           app.py (JSON API for the Next.js site)
   pipeline.py    runs steps 2 to 9 for one resume
 web/             Next.js site: app/, components/, lib/
 scripts/         build_index.py, build_posting_details.py, eval_*.py, wait_for_ollama.py
 tests/           unit tests for each module
-eval/resumes/    synthetic resumes used for evaluation
-docs/            design.md (decisions), engineering-log.md (experiments and evidence), images/
-gcp/             start.sh, stop.sh: budget guardrails for the GCP credit
+eval/resumes/    synthetic resumes used in testing
+docs/            design.md, engineering-log.md, diagrams/ (diagram sources), images/
+gcp/             start.sh and stop.sh, to keep GPU costs within the credit
 data/            raw/ and processed/ (not in git)
 ```
 
+The diagrams are drawn from the Mermaid files in `docs/diagrams/`. After editing one, render it
+again to `docs/images/` with any Mermaid renderer.
+
 ## Privacy
 
-Resumes are processed on the machine running ResumeMatch and deleted as soon as each check
-finishes. Nothing is stored, and nothing is sent to an outside service.
+Resumes are processed on the machine running ResumeMatch and deleted when each check finishes.
+Nothing is stored, and nothing is sent to an outside service.
 
 ## Dataset and license
 
-LinkedIn Job Postings (2023 to 2024), scraped by
-[ArshKA](https://github.com/ArshKA/LinkedIn-Job-Scraper), with an additional 100,000 postings
-contributed by `zoeyyuzou`.
-[Kaggle dataset](https://www.kaggle.com/datasets/arshkon/linkedin-job-postings), licensed
-[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Any processed or derivative
-form of this data distributed from this project remains under the same license.
+LinkedIn Job Postings (2023 to 2024), collected by
+[ArshKA](https://github.com/ArshKA/LinkedIn-Job-Scraper), with 100,000 more postings added by
+`zoeyyuzou`. [Kaggle dataset](https://www.kaggle.com/datasets/arshkon/linkedin-job-postings),
+licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Any processed
+version of this data shared from this project stays under the same license.

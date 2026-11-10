@@ -1,0 +1,29 @@
+flowchart TD
+    subgraph OFFLINE["Built once, offline: scripts/build_index.py"]
+        direction LR
+        D1["Download 123,849 postings<br/>Kaggle, pinned v13"] --> D2["Remove 16,314 duplicates<br/>and 402 boilerplate sentences"]
+        D2 --> D3["Split into chunks of<br/>up to 300 words"]
+        D3 --> D4["Embed with bge-small<br/>384 dimensions"]
+        D4 --> D5[("ChromaDB<br/>237,902 chunks")]
+    end
+
+    subgraph REQUEST["Each upload"]
+        U1["1. Upload<br/>PDF or Word"] --> U2{"2. Is it a<br/>readable resume?"}
+        U2 -- "no" --> X["Plain message to the user"]
+        U2 -- "yes" --> U3["3. Fix typos<br/>for the search only"]
+        U3 --> U4["4. Split into sections"]
+        U4 --> U5["5. Search each section,<br/>combine ranks per posting"]
+        U5 --> U6["6. Keep the requirement<br/>sentences of the top 5"]
+        U6 --> U7["7. One call to the local model<br/>JSON schema enforced"]
+        U7 --> U8{"8. Check each claim"}
+        U8 -- "fails" --> R["Dropped, with the reason listed"]
+        U8 -- "passes" --> U9["9. Build the per-job report"]
+        U9 --> U10["10. Show the result"]
+    end
+
+    OFFLINE -. "searched in steps 5 and 6" .-> REQUEST
+
+    classDef reject fill:#FAF8F4,stroke:#9A4A3A,color:#9A4A3A
+    classDef done fill:#FFFFFF,stroke:#4A6B3A,stroke-width:2px,color:#1F1D1A
+    class X,R reject
+    class U10 done

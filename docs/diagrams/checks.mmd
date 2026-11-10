@@ -1,0 +1,21 @@
+flowchart TD
+    A["Claim from the model"] --> B{"Specific and complete?"}
+    B -- "no" --> X1["Dropped: vague or cut off"]
+    B -- "yes" --> C{"About the candidate,<br/>not a perk or a policy?"}
+    C -- "no" --> X2["Dropped: employer benefit<br/>or statement"]
+    C -- "yes" --> D{"Does the cited posting<br/>mention it?"}
+    D -- "no, another one does" --> D1["Citation moved<br/>to that posting"]
+    D -- "no posting does" --> X3["Dropped: not in<br/>any posting"]
+    D -- "yes" --> E{"Shown or<br/>not found?"}
+    D1 --> E
+    E -- "shown" --> F{"Is the quote in the resume<br/>and about this requirement?"}
+    F -- "no" --> X4["Dropped: quote missing<br/>or off-topic"]
+    F -- "yes" --> OK1["Kept as Shown"]
+    E -- "not found" --> G{"Does the resume<br/>contain all of it?"}
+    G -- "yes" --> X5["Dropped: it is<br/>on the resume"]
+    G -- "no" --> OK2["Kept as Not found<br/>or Partly shown"]
+
+    classDef reject fill:#FAF8F4,stroke:#9A4A3A,color:#9A4A3A
+    classDef done fill:#FFFFFF,stroke:#4A6B3A,stroke-width:2px,color:#1F1D1A
+    class X1,X2,X3,X4,X5 reject
+    class OK1,OK2 done

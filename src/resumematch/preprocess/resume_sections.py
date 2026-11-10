@@ -51,6 +51,28 @@ def _is_title_case_heading(stripped: str) -> bool:
         return False
     return any(w.lower() in _HEADING_KEYWORDS for w in words)
 
+# Inside a skills section, lines like "Languages", "LLM" or "Cloud" are
+# category labels, not new sections. In a two-column PDF the sidebar's
+# skill categories come out as short standalone lines and were read as
+# headings (see docs/engineering-log.md, sidebar-headings). While inside a
+# skills section, only one of these major headings starts a new section.
+_SKILLS_HEADINGS = {"skills", "technical skills", "core competencies", "technologies", "skills and tools"}
+_MAJOR_KEYWORDS = {
+    "summary", "profile", "objective", "experience", "employment", "history", "education",
+    "projects", "certifications", "certificates", "licenses", "licensure", "awards", "honors",
+    "publications", "volunteer", "volunteering", "leadership", "activities", "qualifications", "research",
+}
+
+
+def _is_skills_heading(heading: str) -> bool:
+    return heading.lower() in _SKILLS_HEADINGS or "skills" in heading.lower().split()
+
+
+def _is_major_heading(line: str) -> bool:
+    words = line.strip().rstrip(":").lower().replace("&", " ").split()
+    return any(w in _MAJOR_KEYWORDS for w in words)
+
+
 # Shorter sections than this are merged into the next one: a lone
 # heading or a one-line fragment makes a noisy, low-information query.
 MIN_SECTION_WORDS = 12
@@ -147,13 +169,14 @@ def split_resume(
     #    it's almost always the candidate's name, often in capitals.
     groups: list[tuple[str, list[str]]] = [("HEADER", [lines[0]])]
     for line in lines[1:]:
-        if _is_heading(line):
+        in_skills = _is_skills_heading(groups[-1][0])
+        if _is_heading(line) and (not in_skills or _is_major_heading(line)):
             groups.append((line.rstrip(":").upper(), [line]))
         else:
             groups[-1][1].append(line)
 
     if len(groups) < 3:  # HEADER + at least 2 real sections
-        # Not a sectioned resume (or headings we can't see): fixed windows.
+        # Not a sectioned resume (or headings that can't be detected): fixed windows.
         pieces = _pack_lines(lines, max_tokens, count_tokens)
         return [ResumeSection(f"PART {i + 1}", piece) for i, piece in enumerate(pieces)]
 

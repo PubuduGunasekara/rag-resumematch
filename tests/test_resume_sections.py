@@ -16,7 +16,7 @@ def bullets(prefix: str, n: int) -> str:
 RESUME = f"""JANE DOE
 jane@example.com | Boston, MA | Seeking a software engineering internship role
 EDUCATION
-Northeastern University, MS Computer Science, 2026 - 2028, coursework in NLP
+Lakeview University, MS Computer Science, 2026 - 2028, focus on NLP
 EXPERIENCE
 {bullets("Built a Kafka pipeline", 3)}
 Technical Skills:

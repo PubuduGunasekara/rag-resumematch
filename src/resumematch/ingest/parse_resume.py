@@ -1,7 +1,7 @@
 """Turn a resume file (PDF or DOCX) into plain text.
 
 Design note: keep this dumb on purpose. No layout reconstruction, no
-column detection — just get readable text out. Chunking downstream is
+column detection, just readable text. Chunking downstream is
 what has to be smart, not this.
 """
 
@@ -52,6 +52,36 @@ def _parse_pdf(path: Path) -> str:
 
 
 def _parse_docx(path: Path) -> str:
+    """Paragraphs AND tables, in document order. Reading only
+    doc.paragraphs dropped every table: a resume with its skills in a
+    table lost them entirely (see docs/engineering-log.md, docx-tables).
+    Each table row becomes one line, "Category: items" for two cells."""
     from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
     doc = Document(str(path))
-    return "\n".join(p.text for p in doc.paragraphs)
+    lines: list[str] = []
+    for child in doc.element.body.iterchildren():
+        tag = child.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            lines.append(Paragraph(child, doc).text)
+        elif tag == "tbl":
+            lines.extend(_table_lines(Table(child, doc)))
+    return "\n".join(lines)
+
+
+def _table_lines(table) -> list[str]:
+    lines = []
+    for row in table.rows:
+        cells, seen = [], set()
+        for cell in row.cells:
+            if id(cell._tc) in seen:  # a merged cell is reported once per grid column
+                continue
+            seen.add(id(cell._tc))
+            text = " ".join(cell.text.split())
+            if text:
+                cells.append(text)
+        if cells:
+            lines.append(f"{cells[0]}: {cells[1]}" if len(cells) == 2 else " | ".join(cells))
+    return lines

@@ -32,6 +32,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 22 | 2026-11-09 | Parsing | [Skill labels in a PDF sidebar became sections](#sidebar-headings) | Adopted |
 | 23 | 2026-11-09 | Retrieval | [Every shown claim traced back to the corpus](#grounding-audit) | Adopted |
 | 24 | 2026-11-10 | Deployment | [A sample index so nobody needs a Kaggle account](#sample-index) | Adopted |
+| 25 | 2026-11-10 | Deployment | [The quick start on a fresh clone](#fresh-clone) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -663,6 +664,39 @@ checksum mismatch, unsafe paths and an existing index.
 
 **Evidence.** `scripts/make_sample_index.py`, `scripts/fetch_sample_index.py`,
 `src/resumematch/preprocess/redact.py`, `tests/test_fetch_sample_index.py`, `tests/test_redact.py`
+
+<a id="fresh-clone"></a>
+## 25. The quick start on a fresh clone
+
+**Deployment, 2026-11-10. Outcome: adopted.**
+
+**Problem.** Every quick-start step had been run separately, never in sequence on a fresh clone.
+
+**Hypothesis.** Following the README exactly from an empty folder finds what a stranger would hit.
+
+**Method.** Cloned from GitHub into an empty folder on the M3 Pro and followed the README: pip with no
+cache, an empty Hugging Face cache so the embedding model downloads, the sample index from the
+published release, Streamlit, and one upload (`07_devops_sre_kubernetes.pdf`). Ollama and
+`llama3.2:3b` were already installed, so the model's 2 GB first download is not included.
+
+**Results.**
+
+| Step | Result |
+|---|---|
+| `python3.11 -m venv` | failed: Python 3.11 not installed on this Mac |
+| `python3 -m venv` (Homebrew Python 3.15.2) | failed while setting up pip |
+| Clone | 1 s |
+| Install with Python 3.12 | 85 s, 1.7 GB |
+| Download and check the sample index | 2 s |
+| Start the app | about 1 s, no startup problems reported |
+| First result, including the embedding model download | 45 to 60 s; closest match "DevSecOps Engineer" |
+| Posting count shown | 107,528, on a 2,000-posting index |
+
+**Decision.** The README and Makefile name Python 3.11 or 3.12, and `pyproject.toml` refuses other
+versions. The posting count is read from the index's `BUILD_COMPLETE.json` in Streamlit, the API and
+the website, and is left out when unknown. Re-checked in the fresh clone: the page now says 2,000.
+
+**Evidence.** `tests/test_pipeline.py`, `tests/test_render.py`, `tests/test_api.py`
 
 ---
 

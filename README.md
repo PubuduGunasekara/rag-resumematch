@@ -97,13 +97,14 @@ Each of these is a real failure I measured, with the fix and the numbers in the
 
 ## Try it
 
-You need Python 3.11 and [Ollama](https://ollama.com). The fastest path uses a prebuilt sample
-index of 2,000 postings (37 MB), so no Kaggle account or dataset download is needed. Each step
-below was run on my machine, but the whole sequence has not yet been run on a fresh clone.
+You need Python 3.11 or 3.12 (newer versions are not supported yet) and [Ollama](https://ollama.com). The fastest path uses a prebuilt sample
+index of 2,000 postings (37 MB), so no Kaggle account or dataset download is needed. On a fresh
+clone on my M3 Pro this reached its first result in about 2.5 minutes, not counting the one-time
+2 GB model download ([details](docs/engineering-log.md#fresh-clone)).
 
 ```bash
 git clone https://github.com/PubuduGunasekara/rag-resumematch.git && cd rag-resumematch
-python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
+python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
 .venv/bin/python scripts/fetch_sample_index.py   # downloads and checks the sample index
 ollama pull llama3.2:3b
 .venv/bin/streamlit run src/resumematch/frontend/streamlit_app.py

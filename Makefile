@@ -4,8 +4,11 @@ RESUMES := eval/resumes/nurse.docx eval/resumes/accountant.docx eval/resumes/mec
 
 .PHONY: setup test lint sample-index index-small run api web eval benchmark
 
+# Python 3.11 or 3.12; override with: make setup PYTHON=python3.11
+PYTHON ?= python3.12
+
 setup:          ## create .venv and install the Python package and dependencies
-	python3.11 -m venv .venv
+	$(PYTHON) -m venv .venv
 	.venv/bin/pip install -r requirements.txt
 	.venv/bin/pip install -e .
 

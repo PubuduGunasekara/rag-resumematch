@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "resumematch"
 version = "0.1.0"
 description = "Compares a resume with 107,528 job postings using retrieval and a local LLM, and checks every claim in code"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"  # tested on 3.11 (Docker, CI) and 3.12; 3.15 failed to create a venv
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

@@ -129,7 +129,7 @@ in Python and sent to the page, so both interfaces always match.
 | Retrieval quality against labels | **Not measured.** No relevance labels exist yet | | | | |
 | Claim-check precision against labels | **Not measured.** "Correct on inspection" in the log is my reading, not an independent label set | | | | |
 | Sample index | 37.3 MB; published as release `sample-index-v1`, downloaded from GitHub with the checksum verified, and run through the full pipeline on 2 resumes | M3 Pro | 2 resumes | 2026-11-10 | Log, [sample-index](engineering-log.md#sample-index) |
-| Fresh-clone quick start | **Not run end to end.** Each step ran separately, including the sample-index download from the published release | | | | |
+| Fresh-clone quick start | Run end to end: install 85 s, sample index 2 s, first result 45 to 60 s. Python 3.11 or 3.12 required. The 2 GB model download was not timed (already installed) | M3 Pro, Python 3.12 | One clone, one resume | 2026-11-10 | Log, [fresh-clone](engineering-log.md#fresh-clone) |
 
 ## Numbers and their sources
 

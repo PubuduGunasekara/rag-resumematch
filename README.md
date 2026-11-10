@@ -152,7 +152,18 @@ remains under the same license.
 
 ## Status
 
-Scaffold only — modules contain signatures/docstrings and
-`raise NotImplementedError` placeholders, not implementations. See
-`docs/design.md` for what's built vs. planned, and for the course
-timeline this is being built against.
+Working end to end on the full corpus (107,528 distinct postings,
+237,902 chunks); 94 unit tests pass. Measured on four resumes from
+four fields (software, nursing, accounting, mechanical engineering):
+
+- Retrieval returns on-field postings for every resume, in ~0.04 s.
+- Typo correction: 0 false corrections on clean resumes; with 10%
+  injected typos, retrieval overlap with the clean result goes from
+  0.60-0.86 without correction to 0.94-1.00 with it.
+- Gap analysis (llama3.2:3b): every claim is checked in code against
+  the resume and the cited posting; 1.5-5.2 verified matches and
+  0.2-7.8 verified gaps per run, ~11 s per resume on an M3 Pro.
+
+Not done yet: GCP deployment, tests on real (non-synthetic) PDF
+resumes, synonym handling ("ICU" vs "Intensive Care Unit"). Numbers,
+decisions and open issues are in `docs/design.md`.

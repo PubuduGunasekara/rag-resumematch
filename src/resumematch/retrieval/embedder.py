@@ -3,7 +3,6 @@ never imports sentence_transformers directly — swapping the embedding
 model later means changing one file, not grepping the whole project.
 """
 
-from functools import lru_cache
 
 
 class Embedder:

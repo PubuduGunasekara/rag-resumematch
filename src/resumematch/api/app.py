@@ -35,6 +35,7 @@ from resumematch.pipeline import (
     IndexNotBuiltError,
     PipelineResult,
     ResumeRejected,
+    indexed_postings,
     load_config,
     resolve_persist_dir,
     run_pipeline,
@@ -45,7 +46,6 @@ load_dotenv()
 VOCAB_PATH = Path("data/processed/domain_vocab.json")
 DETAILS_PATH = Path("data/processed/posting_details.json")
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
-TOTAL_POSTINGS = 107_528
 
 app = FastAPI(title="ResumeMatch API", docs_url="/api/docs", openapi_url="/api/openapi.json")
 _busy = threading.Lock()
@@ -62,7 +62,7 @@ def _load_json(path: str):
     return json.loads(p.read_text()) if p.exists() else None
 
 
-def report_to_json(result: PipelineResult) -> dict:
+def report_to_json(result: PipelineResult, total_postings: int | None = None) -> dict:
     """Everything the results page shows, as plain JSON. All wording a
     user reads is decided in Python (job_report, render) so both front
     ends say exactly the same thing."""
@@ -79,7 +79,7 @@ def report_to_json(result: PipelineResult) -> dict:
         })
     analysis = report.analysis
     return {
-        "headline": report.headline, "summary": report.summary, "total_postings": TOTAL_POSTINGS,
+        "headline": report.headline, "summary": report.summary, "total_postings": total_postings,
         "best_job_id": report.best.job_id if report.best else None,
         "jobs": jobs,
         "learn_first": [asdict(i) for i in report.learn_first],
@@ -100,8 +100,10 @@ def report_to_json(result: PipelineResult) -> dict:
 def health() -> dict:
     """{"ok", "problems": [{"code", "message", "blocking"}], "busy"}. The
     site shows each problem's one-line message before anyone uploads."""
-    problems = check(resolve_persist_dir(load_config()))
-    return {"ok": not any(p.blocking for p in problems), "problems": as_dicts(problems), "busy": _busy.locked()}
+    persist_dir = resolve_persist_dir(load_config())
+    problems = check(persist_dir)
+    return {"ok": not any(p.blocking for p in problems), "problems": as_dicts(problems), "busy": _busy.locked(),
+            "postings": indexed_postings(persist_dir)}
 
 
 @app.post("/api/analyze")
@@ -123,7 +125,7 @@ def analyze(file: UploadFile = File(...), correction: bool = Form(True), allow_u
             path = tmp.name
         result = run_pipeline(path, domain_vocabulary=_load_json(str(VOCAB_PATH)), apply_correction=correction,
                               details=_load_json(str(DETAILS_PATH)) or {}, allow_unusual=allow_unusual)
-        return report_to_json(result)
+        return report_to_json(result, indexed_postings(resolve_persist_dir(load_config())))
     except ResumeRejected as rejected:
         raise _error(422, rejected.code, rejected.message, rejected.soft) from None
     except IndexNotBuiltError:

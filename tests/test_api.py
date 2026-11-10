@@ -108,3 +108,12 @@ def test_unexpected_error_never_logs_its_message(monkeypatch, caplog):
     logged = caplog.text
     assert "RuntimeError" in logged and "boom" in logged      # still debuggable
     assert "Maria" not in logged and "example.com" not in logged
+
+
+def test_report_and_health_use_the_index_count(monkeypatch):
+    monkeypatch.setattr(api, "run_pipeline", lambda *a, **k: fake_result())
+    monkeypatch.setattr(api, "indexed_postings", lambda _dir: 2000)
+    monkeypatch.setattr(api, "check", lambda *_a, **_k: [])
+    c = TestClient(api.app)
+    assert c.post("/api/analyze", files={"file": ("cv.docx", b"x")}).json()["total_postings"] == 2000
+    assert c.get("/api/health").json()["postings"] == 2000

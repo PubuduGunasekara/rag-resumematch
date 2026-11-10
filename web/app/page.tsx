@@ -34,12 +34,13 @@ export default function Home() {
   const [elapsed, setElapsed] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const [problems, setProblems] = useState<Problem[]>([]);
+  const [postings, setPostings] = useState<number | null>(null);
 
   // Startup check: say what's missing (index, Ollama, model) before anyone uploads.
   useEffect(() => {
     fetch("/api/health")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((h) => setProblems(h.problems ?? []))
+      .then((h) => { setProblems(h.problems ?? []); setPostings(h.postings ?? null); })
       .catch(() => setProblems([{ code: "api_down", blocking: true,
         message: "Can't reach the analysis service. Start it with: uvicorn resumematch.api.app:app --port 8000" }]));
   }, []);
@@ -83,7 +84,8 @@ export default function Home() {
       <p className="tag">Resume check</p>
       <h1 className="serif">Check your resume against real job postings</h1>
       <p className="lede">
-        Upload a resume. ResumeMatch finds the closest postings among 107,528 from LinkedIn, checks each requirement against
+        Upload a resume. ResumeMatch finds the closest postings{" "}
+        {postings ? `among ${postings.toLocaleString()} from LinkedIn` : "among the LinkedIn postings in the index"}, checks each requirement against
         what your resume actually says, and shows you what to work on before you apply.
       </p>
 

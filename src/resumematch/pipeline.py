@@ -6,8 +6,10 @@ rebuild the index on every call, since that would mean re-processing
 (see run_pipeline's check) rather than silently returning no matches.
 """
 
+import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 import yaml
 
@@ -59,6 +61,17 @@ def resolve_persist_dir(config: dict) -> str:
     config.yaml, so the indexer and the app can never silently point at
     different folders -- that would look like an empty index."""
     return os.environ.get("CHROMA_PERSIST_DIR") or config.get("chroma_persist_dir", "./chroma_db")
+
+
+def indexed_postings(persist_dir: str) -> int | None:
+    """Distinct postings in the index, from the BUILD_COMPLETE.json that
+    build_index.py writes last; None if it can't be read. The interfaces
+    used to print a fixed 107,528, which was wrong for the 2,000-posting
+    sample index (docs/engineering-log.md, fresh-clone)."""
+    try:
+        return int(json.loads((Path(persist_dir) / "BUILD_COMPLETE.json").read_text())["postings"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def run_pipeline(

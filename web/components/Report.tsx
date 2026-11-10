@@ -118,7 +118,10 @@ export default function ReportView({ report, fileName }: { report: Report; fileN
     <section className="report" aria-label={`Report for ${fileName}`}>
       <p className="tag">Resume report</p>
       <h1 className="serif">{report.headline}</h1>
-      <p className="lede">{report.summary} Searched {report.total_postings.toLocaleString()} LinkedIn postings.</p>
+      <p className="lede">
+        {report.summary}
+        {report.total_postings ? ` Searched ${report.total_postings.toLocaleString()} LinkedIn postings.` : ""}
+      </p>
 
       {best && (
         <div className="section">

@@ -114,9 +114,10 @@ def posting_link(job: JobAnalysis) -> str:
             'Open the original posting</a> <span class="muted">(it may have closed)</span></p>')
 
 
-def header(report: JobReport, total_postings: int) -> str:
+def header(report: JobReport, total_postings: int | None) -> str:
+    searched = f" Searched {total_postings:,} LinkedIn postings." if total_postings else ""
     return (f'<div class="rm"><p class="tag">Resume report</p><h1 class="serif">{esc(report.headline)}</h1>'
-            f'<p class="lede">{esc(report.summary)} Searched {total_postings:,} LinkedIn postings.</p></div>')
+            f'<p class="lede">{esc(report.summary)}{searched}</p></div>')
 
 
 def best_fit(job: JobAnalysis) -> str:

@@ -22,11 +22,17 @@ load_dotenv()
 
 from resumematch.frontend import render  # noqa: E402 (after load_dotenv)
 from resumematch.health import check  # noqa: E402
-from resumematch.pipeline import IndexNotBuiltError, ResumeRejected, run_pipeline  # noqa: E402
+from resumematch.pipeline import (  # noqa: E402
+    IndexNotBuiltError,
+    ResumeRejected,
+    indexed_postings,
+    load_config,
+    resolve_persist_dir,
+    run_pipeline,
+)
 
 DOMAIN_VOCAB_PATH = Path("data/processed/domain_vocab.json")
 DETAILS_PATH = Path("data/processed/posting_details.json")
-TOTAL_POSTINGS = 107_528  # distinct postings in the full index (BUILD_COMPLETE.json)
 
 st.set_page_config(page_title="ResumeMatch", layout="centered", initial_sidebar_state="collapsed")
 
@@ -74,11 +80,14 @@ def friendly_error(message: str, detail: str | None = None):
     st.stop()
 
 
+POSTINGS = indexed_postings(resolve_persist_dir(load_config()))  # 107,528 for the full index, 2,000 for the sample
+AMONG = f"among {POSTINGS:,} from LinkedIn" if POSTINGS else "among the LinkedIn postings in the index"
+
 # Landing
 st.markdown(
     '<div class="rm"><p class="tag">ResumeMatch</p>'
     '<h1 class="serif">Check your resume against real job postings</h1>'
-    '<p class="lede">Upload a resume. ResumeMatch finds the closest postings among 107,528 from LinkedIn, checks each '
+    f'<p class="lede">Upload a resume. ResumeMatch finds the closest postings {AMONG}, checks each '
     'requirement against what your resume actually says, and shows you what to work on before you apply.</p></div>',
     unsafe_allow_html=True,
 )
@@ -135,7 +144,7 @@ result = st.session_state.result
 report = result.report
 
 st.markdown('<div class="rule"></div>', unsafe_allow_html=True)
-st.markdown(render.header(report, TOTAL_POSTINGS), unsafe_allow_html=True)
+st.markdown(render.header(report, POSTINGS), unsafe_allow_html=True)
 
 if report.best:
     st.markdown(render.best_fit(report.best), unsafe_allow_html=True)

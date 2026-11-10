@@ -57,3 +57,10 @@ def test_overlapping_quotes_merge_into_one_mark():
 def test_facts_skip_missing_fields():
     assert render.facts({"location": "Boston, MA", "salary": None}) == '<div class="facts"><span>Boston, MA</span></div>'
     assert render.facts({}) == ""
+
+
+def test_header_states_the_real_count_or_none_at_all():
+    j = job()
+    report = JobReport([j], [], "Your closest match is RN ICU", "Summary.", best=j)
+    assert "Searched 2,000 LinkedIn postings." in render.header(report, 2000)
+    assert "Searched" not in render.header(report, None)

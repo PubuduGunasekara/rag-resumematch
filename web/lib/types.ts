@@ -34,7 +34,7 @@ export interface Job {
 export interface Report {
   headline: string;
   summary: string;
-  total_postings: number;
+  total_postings: number | null;
   best_job_id: string | null;
   jobs: Job[];
   learn_first: { text: string; jobs: number; credential: boolean }[];

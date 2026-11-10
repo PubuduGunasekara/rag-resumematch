@@ -9,7 +9,7 @@ const serif = Source_Serif_4({ subsets: ["latin"], weight: ["400", "500"], varia
 
 export const metadata: Metadata = {
   title: "ResumeMatch",
-  description: "Check your resume against 107,528 real job postings, with every claim verified against what your resume says.",
+  description: "Check your resume against real job postings, with every claim verified against what your resume says.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

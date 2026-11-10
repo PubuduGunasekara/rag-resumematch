@@ -1,7 +1,7 @@
 #!/bin/bash
 # Starts (or creates, on first run) the GCP VM and brings the app up.
-# One command, so "forgot to turn it off" doesn't quietly eat your $50
-# credit, and "forgot to turn it ON before the demo" doesn't either.
+# One command, so the VM is never left running by accident and is
+# always up when it's needed. A T4 VM costs about $0.50 an hour.
 #
 # Fill in these four values before first use:
 set -e
@@ -33,4 +33,4 @@ echo "Once it's up: ssh in, cd into the repo, and run:"
 echo "  docker-compose -f docker-compose.gcp.yml up --build -d"
 echo ""
 echo "REMEMBER: run gcp/stop.sh the moment you're done. At ~\$0.50-0.55/hr,"
-echo "\$50 of credit is roughly 90 hours — don't let this idle overnight."
+echo "A T4 VM costs about \$0.50 an hour. Run ./gcp/stop.sh when you are done."

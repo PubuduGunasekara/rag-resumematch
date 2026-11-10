@@ -11,12 +11,16 @@ sentence-transformers==3.3.1
 
 # Vector store
 chromadb==0.5.23
+# chromadb 0.5 calls posthog.capture() with the pre-6.0 signature; newer posthog
+# raises before it checks the 'disabled' flag and logs an error on every start.
+# Telemetry itself is turned off in retrieval/vector_store.py.
+posthog==3.7.0
 
-# LLM client (talks to local Ollama REST API — no SDK needed, but this
+# LLM client (talks to the local Ollama REST API; no SDK needed, but this
 # keeps retries/timeouts simple)
 requests==2.32.3
 
-# Front ends: Streamlit (course UI) and a JSON API for the Next.js site (web/)
+# Front ends: Streamlit (local UI) and a JSON API for the Next.js site (web/)
 streamlit==1.40.2
 fastapi==0.162.2
 uvicorn==0.54.0
@@ -29,4 +33,3 @@ PyYAML==6.0.2
 # Dev / test
 pytest==8.3.4
 ruff==0.8.4
-black==24.10.0

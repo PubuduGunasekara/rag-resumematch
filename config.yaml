@@ -13,7 +13,7 @@ retrieval:
   max_per_company: 2     # near-duplicate postings from one employer fill slots otherwise
 
 query_correction:
-  # Guard rails for running Assignment 3's corrector on resume text; see
+  # Guard rails for running an edit-distance corrector on resume text; see
   # query_correction.correct_query for the false positive behind each.
   min_token_length: 4     # never correct shorter unknown words (Lua, ESP)
   edit2_min_length: 8     # edit-distance-2 fixes only on long words
@@ -25,7 +25,7 @@ generation:
   num_ctx: 8192           # explicit: Ollama's default 4,096 was 96% full on a
                           # real prompt, and overflow drops prompt text silently
 
-# Results page (one pooled call; see docs/experiments.yaml, coverage-ab):
+# Results page (one pooled call; see docs/engineering-log.md, entry coverage-ab):
 # 12 items per list plus "include requirements from every excerpt" doubled
 # per-job coverage on 2 of 3 resumes for ~5 s more.
 report:

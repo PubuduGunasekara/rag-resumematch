@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      # CPU-only torch first, so sentence-transformers doesn't pull the
+      # multi-gigabyte CUDA build. Same pin as the Dockerfile.
+      - name: Install CPU torch
+        run: pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install --no-deps -e .
+      - name: Lint
+        run: ruff check src tests scripts
+      # No test needs Ollama, the dataset or the embedding model.
+      - name: Test
+        env:
+          ANONYMIZED_TELEMETRY: "False"
+        run: pytest -q
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"

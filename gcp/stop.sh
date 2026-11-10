@@ -1,7 +1,7 @@
 #!/bin/bash
 # Stops the VM. Stopped = no compute billing (disk storage still bills,
 # but that's cents/month, not dollars/hour). This is the other half of
-# the budget guardrail in start.sh — run this every single time you're
+# the cost guard for start.sh: run this every single time you're
 # done, no exceptions.
 set -e
 PROJECT_ID="${GCP_PROJECT_ID:?Set GCP_PROJECT_ID}"

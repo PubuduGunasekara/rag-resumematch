@@ -8,12 +8,14 @@ venv/
 # Env / secrets
 .env
 
-# Personal data — your real resume and sample job postings should not
-# live in git history, even a private repo. Keep them local only.
+# Personal data: real resumes and raw postings never go into git history,
+# even in a private repo. Keep them local only.
 data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+# Real resumes used for testing stay here, never in eval/resumes/
+eval/private/
 
 # ChromaDB local persistence
 chroma_db/
@@ -23,3 +25,6 @@ chroma_db/
 .DS_Store
 .vscode/
 .idea/
+
+# Built release artifacts (scripts/make_sample_index.py)
+dist/

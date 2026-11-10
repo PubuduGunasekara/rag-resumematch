@@ -1,7 +1,7 @@
 #!/bin/sh
 # Container start-up:
 #   1. wait for Ollama and pull OLLAMA_MODEL if missing
-#   2. build the index if there is no COMPLETE one (the spec's
+#   2. build the index if there is no COMPLETE one (a fresh clone's
 #      "AutomatedDownload": a fresh clone downloads and indexes the corpus
 #      itself, ~40 min on a laptop CPU)
 #   3. write posting details (location, pay) if missing

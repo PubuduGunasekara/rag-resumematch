@@ -1,12 +1,22 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "resumematch"
 version = "0.1.0"
-description = "RAG-based resume-vs-job-posting gap analysis (CS6120 project)"
+description = "Compares a resume with 107,528 job postings using retrieval and a local LLM, and checks every claim in code"
 requires-python = ">=3.11"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Pubudu Gunasekara" }]
+keywords = ["rag", "retrieval", "nlp", "llm", "ollama", "resume", "job-postings"]
+
+[project.urls]
+Repository = "https://github.com/PubuduGunasekara/rag-resumematch"
+Design = "https://github.com/PubuduGunasekara/rag-resumematch/blob/main/docs/design.md"
+"Engineering log" = "https://github.com/PubuduGunasekara/rag-resumematch/blob/main/docs/engineering-log.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -15,9 +25,12 @@ where = ["src"]
 line-length = 100
 target-version = "py311"
 
-[tool.black]
-line-length = 100
-target-version = ["py311"]
+[tool.ruff.lint]
+# pycodestyle, pyflakes, import order, bugbear, pyupgrade, simplify.
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
+# E501: long lines are not enforced (no auto-formatter in this repo).
+# B008: FastAPI's File(...)/Form(...) defaults are the framework's idiom.
+ignore = ["E501", "B008"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

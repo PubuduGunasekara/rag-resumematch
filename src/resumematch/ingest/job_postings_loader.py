@@ -132,3 +132,42 @@ def iter_posting_texts(csv_dir: Path, batch_size: int = 20000) -> Iterator[str]:
     for batch_df in pd.read_csv(csv_dir / "postings.csv", usecols=columns, chunksize=batch_size):
         for column in columns:
             yield from batch_df[column].dropna()
+
+
+_DETAIL_COLUMNS = ["job_id", "location", "formatted_work_type", "formatted_experience_level",
+                   "remote_allowed", "min_salary", "max_salary", "med_salary", "pay_period", "currency"]
+_PER = {"HOURLY": "an hour", "YEARLY": "a year", "MONTHLY": "a month", "WEEKLY": "a week", "BIWEEKLY": "every two weeks"}
+
+
+def format_salary(low, high, median, pay_period, currency) -> str | None:
+    """"$17 to $20 an hour", "$45,000 to $65,000 a year", or None.
+    Only about 29% of postings list pay; most results show none."""
+    def money(value) -> str:
+        symbol = "$" if currency in (None, "USD") else f"{currency} "
+        return f"{symbol}{value:,.0f}" if value >= 100 else f"{symbol}{value:,.2f}".replace(".00", "")
+    per = _PER.get(str(pay_period).upper())
+    if per is None:
+        return None
+    if pd.notna(low) and pd.notna(high):
+        return f"{money(low)} to {money(high)} {per}" if low != high else f"{money(low)} {per}"
+    if pd.notna(median):
+        return f"{money(median)} {per}"
+    return None
+
+
+def load_posting_details(csv_dir: Path) -> dict[str, dict]:
+    """job_id -> what a job seeker scans first on a listing: location,
+    work type, seniority, remote, pay. Kept out of the vector index
+    (so adding a field never forces a 40-minute rebuild) and written to
+    a small JSON file the app loads once."""
+    df = pd.read_csv(Path(csv_dir) / "postings.csv", usecols=_DETAIL_COLUMNS)
+    details = {}
+    for row in df.itertuples(index=False):
+        details[str(row.job_id)] = {
+            "location": row.location if pd.notna(row.location) else None,
+            "work_type": row.formatted_work_type if pd.notna(row.formatted_work_type) else None,
+            "level": row.formatted_experience_level if pd.notna(row.formatted_experience_level) else None,
+            "remote": bool(row.remote_allowed == 1),
+            "salary": format_salary(row.min_salary, row.max_salary, row.med_salary, row.pay_period, row.currency),
+        }
+    return details

@@ -74,6 +74,20 @@ class VectorStore:
             })
         return out
 
+    def get_posting_chunks(self, job_id: str) -> list[dict]:
+        """Every chunk of one posting, in document order (description
+        before skills_desc, then by chunk index). Retrieval returns only
+        a posting's best-matching chunk; a per-job analysis needs all of
+        it, or requirements in the other chunks are invisible."""
+        result = self._get_collection().get(where={"job_id": str(job_id)})
+        rows = sorted(zip(result["ids"], result["documents"], result["metadatas"]),
+                      key=lambda r: (r[2]["section"] != "description", int(r[0].rsplit("_", 1)[-1])))
+        return [{
+            "text": text, "distance": None, "job_id": meta["job_id"], "section": meta["section"],
+            "job_posting_url": meta["job_posting_url"] or None, "title": meta["title"],
+            "company_name": meta.get("company_name") or None,
+        } for _, text, meta in rows]
+
     def count(self) -> int:
         """Number of chunks currently indexed — used by build_index.py to
         report progress and by the Streamlit app to show a "index not

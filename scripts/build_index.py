@@ -28,6 +28,7 @@ from resumematch.ingest.job_postings_loader import (
     iter_company_descriptions,
     iter_job_postings,
     iter_posting_texts,
+    load_posting_details,
 )
 from resumematch.preprocess.boilerplate import find_boilerplate
 from resumematch.preprocess.chunker import chunk_job_posting
@@ -40,6 +41,7 @@ from resumematch.retrieval.vector_store import VectorStore
 # it's one ~15s streaming pass, and a small sample makes the corrector
 # "fix" real tech terms it hasn't seen (see query_correction.py).
 VOCAB_OUTPUT_PATH = Path("data/processed/domain_vocab.json")
+DETAILS_OUTPUT_PATH = Path("data/processed/posting_details.json")  # location, pay, ... for the UI
 # Written for inspection/reproducibility: exactly which sentences were
 # stripped from postings as boilerplate (see preprocess/boilerplate.py).
 BOILERPLATE_OUTPUT_PATH = Path("data/processed/boilerplate_sentences.json")
@@ -102,6 +104,10 @@ def main():
     VOCAB_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     VOCAB_OUTPUT_PATH.write_text(json.dumps(vocabulary))
     print(f"Wrote {len(vocabulary)}-word domain vocabulary to {VOCAB_OUTPUT_PATH}.")
+
+    details = load_posting_details(csv_dir)
+    DETAILS_OUTPUT_PATH.write_text(json.dumps(details))
+    print(f"Wrote details for {len(details)} postings to {DETAILS_OUTPUT_PATH}.")
 
     marker = {"postings": total_indexed, "chunks": store.count(), "limit": args.limit,
               "embedding_model": embedding_model, "boilerplate_sentences": len(boilerplate)}

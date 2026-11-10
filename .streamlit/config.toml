@@ -1,0 +1,13 @@
+# The results page is designed as a light "paper and ink" report; pin
+# Streamlit's own widgets to the same palette instead of following the
+# system dark mode (which turned the upload hint white on paper).
+[theme]
+base = "light"
+primaryColor = "#1F1D1A"
+backgroundColor = "#FAF8F4"
+secondaryBackgroundColor = "#F3EFE8"
+textColor = "#1F1D1A"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false

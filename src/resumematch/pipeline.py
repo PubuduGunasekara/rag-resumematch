@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import yaml
 
-from resumematch.ingest.parse_resume import parse_resume
+from resumematch.ingest.validate import ResumeRejected, validate_resume  # noqa: F401 (re-exported for the UIs)
 from resumematch.preprocess.query_correction import CorrectionResult, correct_query
 from resumematch.preprocess.resume_sections import ResumeSection, split_resume
 from resumematch.retrieval.embedder import Embedder
@@ -19,6 +19,7 @@ from resumematch.retrieval.fusion import retrieve_for_resume
 from resumematch.retrieval.vector_store import VectorStore
 from resumematch.generation.ollama_client import OllamaClient
 from resumematch.generation.gap_analysis import run_gap_analysis, GapAnalysisResult
+from resumematch.generation.job_report import JobReport, build_report
 
 
 class IndexNotBuiltError(RuntimeError):
@@ -38,6 +39,10 @@ class PipelineResult:
     # The postings handed to the LLM, one chunk per posting, with
     # "matched_sections" saying which resume sections retrieved each.
     retrieved: list[dict]
+    # Per-job view of the same checked claims: tiers, checklists,
+    # learn-first. What the results page renders.
+    report: JobReport
+    resume_text: str
 
 
 def load_config(config_path: str = "config.yaml") -> dict:
@@ -58,6 +63,8 @@ def run_pipeline(
     config_path: str = "config.yaml",
     domain_vocabulary: dict[str, float] | None = None,
     apply_correction: bool = True,
+    details: dict[str, dict] | None = None,
+    allow_unusual: bool = False,
 ) -> PipelineResult:
     """
     Input:
@@ -69,10 +76,17 @@ def run_pipeline(
             builds this once at startup and reuses it.
         apply_correction: False skips typo correction even when a
             vocabulary is available (UI toggle / A-B comparison).
+        details: job_id -> location/work type/level/salary, from
+            data/processed/posting_details.json (loaded once by the app).
+        allow_unusual: the user chose "Check it anyway" after a soft
+            "doesn't look like a resume" warning.
+    Raises:
+        ResumeRejected: the file isn't a readable resume (see ingest/validate.py),
+            BEFORE any model is loaded or called.
     """
     config = load_config(config_path)
 
-    resume_text = parse_resume(resume_path)
+    resume_text, _signals = validate_resume(resume_path, allow_unusual=allow_unusual)
 
     store = VectorStore(persist_dir=resolve_persist_dir(config))
     if store.count() == 0:
@@ -113,16 +127,22 @@ def run_pipeline(
     )
 
     client = OllamaClient()
+    gen, rep = config["generation"], config.get("report", {})
     # The LLM gets the ORIGINAL resume text: correction exists to make
     # retrieval robust, and the model reads typos fine on its own.
-    gap_analysis = run_gap_analysis(
-        resume_text=resume_text,
-        retrieved_chunks=retrieved,
-        client=client,
-        temperature=config["generation"]["temperature"],
-        max_tokens=config["generation"]["max_tokens"],
-        num_ctx=config["generation"]["num_ctx"],
+    # One pooled call over each posting's requirement sentences (see
+    # build_report for why not one call per job).
+    report = build_report(
+        retrieved, resume_text,
+        analyze=lambda text, excerpts: run_gap_analysis(
+            text, excerpts, client, temperature=gen["temperature"], num_ctx=gen["num_ctx"],
+            max_tokens=rep.get("max_tokens", gen["max_tokens"]),
+            max_items=rep.get("max_items", 8), cover_each=rep.get("cover_each", False),
+        ),
+        get_chunks=store.get_posting_chunks,
+        details=details,
     )
     return PipelineResult(
-        gap_analysis=gap_analysis, corrections=corrections, sections=sections, retrieved=retrieved
+        gap_analysis=report.analysis, corrections=corrections, sections=sections,
+        retrieved=retrieved, report=report, resume_text=resume_text,
     )

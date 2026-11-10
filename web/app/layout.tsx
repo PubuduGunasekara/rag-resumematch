@@ -22,7 +22,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main>{children}</main>
         <footer className="site-footer">
           Postings from LinkedIn Job Postings 2023 to 2024 by Arsh Koneru, CC BY-SA 4.0. Listings may have closed.
-          Built for CS6120 at Northeastern University.
         </footer>
       </body>
     </html>

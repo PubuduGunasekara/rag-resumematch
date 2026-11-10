@@ -4,7 +4,7 @@ Next.js site in web/.
 Run with: uvicorn resumematch.api.app:app --port 8000
 
 Endpoints:
-    GET  /api/health       index size and whether the model server answers
+    GET  /api/health       startup problems (index, Ollama, model), each with a one-line fix
     POST /api/analyze      multipart "file" (.pdf/.docx), form "correction" (bool),
                            form "allow_unusual" (bool: "Check it anyway" after a soft warning)
 
@@ -18,11 +18,11 @@ a clear 429 instead of waiting in a hidden queue.
 
 import json
 import logging
-import os
 import tempfile
 import threading
+import traceback
 from dataclasses import asdict
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 import requests
@@ -30,8 +30,14 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from resumematch.frontend.render import highlight_spans
+from resumematch.health import as_dicts, check
 from resumematch.pipeline import (
-    IndexNotBuiltError, PipelineResult, ResumeRejected, load_config, resolve_persist_dir, run_pipeline,
+    IndexNotBuiltError,
+    PipelineResult,
+    ResumeRejected,
+    load_config,
+    resolve_persist_dir,
+    run_pipeline,
 )
 
 load_dotenv()
@@ -50,7 +56,7 @@ def _error(status: int, code: str, message: str, soft: bool = False) -> HTTPExce
     return HTTPException(status, {"code": code, "message": message, "soft": soft})
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_json(path: str):
     p = Path(path)
     return json.loads(p.read_text()) if p.exists() else None
@@ -92,14 +98,10 @@ def report_to_json(result: PipelineResult) -> dict:
 
 @app.get("/api/health")
 def health() -> dict:
-    from resumematch.retrieval.vector_store import VectorStore
-    chunks = VectorStore(persist_dir=resolve_persist_dir(load_config())).count()
-    host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-    try:
-        model_up = requests.get(f"{host}/api/version", timeout=2).ok
-    except requests.RequestException:
-        model_up = False
-    return {"chunks": chunks, "model_server": model_up, "busy": _busy.locked()}
+    """{"ok", "problems": [{"code", "message", "blocking"}], "busy"}. The
+    site shows each problem's one-line message before anyone uploads."""
+    problems = check(resolve_persist_dir(load_config()))
+    return {"ok": not any(p.blocking for p in problems), "problems": as_dicts(problems), "busy": _busy.locked()}
 
 
 @app.post("/api/analyze")
@@ -123,17 +125,19 @@ def analyze(file: UploadFile = File(...), correction: bool = Form(True), allow_u
                               details=_load_json(str(DETAILS_PATH)) or {}, allow_unusual=allow_unusual)
         return report_to_json(result)
     except ResumeRejected as rejected:
-        raise _error(422, rejected.code, rejected.message, rejected.soft)
+        raise _error(422, rejected.code, rejected.message, rejected.soft) from None
     except IndexNotBuiltError:
-        raise _error(503, "no_index", "The job postings index hasn't been built yet.")
+        raise _error(503, "no_index", "The job postings index hasn't been built yet.") from None
     except requests.ConnectionError:
-        raise _error(503, "model_down", "The local model isn't running. Start Ollama and try again.")
+        raise _error(503, "model_down", "The local model isn't running. Start Ollama and try again.") from None
     except ValueError:
-        raise _error(502, "bad_model_output", "The model's answer couldn't be used, even after a retry. Try the file again.")
-    except Exception:  # noqa: BLE001 - last resort: log it, never show a stack trace to a user
-        log.exception("analysis failed")
-        raise _error(500, "internal", "Something went wrong on our side. Try again, and if it keeps happening, "
-                                      "try exporting your resume again.")
+        raise _error(502, "bad_model_output", "The model's answer couldn't be used, even after a retry. Try the file again.") from None
+    except Exception as err:  # noqa: BLE001 - last resort: log it, never show a stack trace to a user
+        # Type and stack only. An exception message can quote its input,
+        # and the input here is someone's resume, so it never goes to the log.
+        log.error("analysis failed: %s\n%s", type(err).__name__, "".join(traceback.format_tb(err.__traceback__)))
+        raise _error(500, "internal", "Something went wrong while checking this file. Try again, and if it keeps happening, "
+                                      "try exporting your resume again.") from None
     finally:
         _busy.release()
         if path:

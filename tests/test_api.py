@@ -20,7 +20,7 @@ def fake_result() -> PipelineResult:
     rejected = CitedClaim("Child care", "7", None, "", None, claimed_as="missing",
                           issue="an employer benefit, not a requirement")
     analysis = GapAnalysisResult([], [], "", "{}", unverified=[rejected])
-    report = JobReport([job], [LearnItem("Siemens NX", 1, False)], "Your closest match is RN ICU", "We found 1.",
+    report = JobReport([job], [LearnItem("Siemens NX", 1, False)], "Your closest match is RN ICU", "These are the 1 postings closest to your resume.",
                        best=job, analysis=analysis)
     return PipelineResult(gap_analysis=analysis, corrections=[], sections=[ResumeSection("SKILLS", RESUME)],
                           retrieved=[{"title": "RN ICU", "company_name": "Southcoast Health", "matched_sections": ["SKILLS"]}],
@@ -94,3 +94,17 @@ def test_unexpected_error_is_a_plain_message_not_a_trace(monkeypatch):
 def test_empty_file_is_refused(client):
     r = client.post("/api/analyze", files={"file": ("cv.pdf", b"")})
     assert r.status_code == 400 and r.json()["detail"]["code"] == "empty"
+
+
+def test_unexpected_error_never_logs_its_message(monkeypatch, caplog):
+    # An exception message can quote the resume; the log gets type and stack only.
+    resume_text = "Maria Delgado, maria.delgado.rn@example.com, ICU nurse"
+
+    def boom(*a, **k):
+        raise RuntimeError(resume_text)  # message built from data, as in real failures
+    monkeypatch.setattr(api, "run_pipeline", boom)
+    with caplog.at_level("ERROR", logger="resumematch.api"):
+        TestClient(api.app).post("/api/analyze", files={"file": ("cv.pdf", b"%PDF-1.4")})
+    logged = caplog.text
+    assert "RuntimeError" in logged and "boom" in logged      # still debuggable
+    assert "Maria" not in logged and "example.com" not in logged

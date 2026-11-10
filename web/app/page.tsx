@@ -25,12 +25,25 @@ async function readError(res: Response): Promise<{ message: string; soft: boolea
 
 const ACCEPT = [".pdf", ".docx"];
 
+type Problem = { code: string; message: string; blocking: boolean };
+
 export default function Home() {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [correction, setCorrection] = useState(true);
   const [over, setOver] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  const [problems, setProblems] = useState<Problem[]>([]);
+
+  // Startup check: say what's missing (index, Ollama, model) before anyone uploads.
+  useEffect(() => {
+    fetch("/api/health")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((h) => setProblems(h.problems ?? []))
+      .catch(() => setProblems([{ code: "api_down", blocking: true,
+        message: "Can't reach the analysis service. Start it with: uvicorn resumematch.api.app:app --port 8000" }]));
+  }, []);
+  const blocked = problems.some((p) => p.blocking);
 
   useEffect(() => {
     if (state.kind !== "working") return;
@@ -63,15 +76,20 @@ export default function Home() {
   }
 
   const working = state.kind === "working";
+  const disabled = working || blocked;
 
   return (
     <>
       <p className="tag">Resume check</p>
       <h1 className="serif">Check your resume against real job postings</h1>
       <p className="lede">
-        Upload a resume. We find the closest postings among 107,528 from LinkedIn, check each requirement against
-        what your resume actually says, and show you what to work on before you apply.
+        Upload a resume. ResumeMatch finds the closest postings among 107,528 from LinkedIn, checks each requirement against
+        what your resume actually says, and shows you what to work on before you apply.
       </p>
+
+      {problems.map((p) => (
+        <p key={p.code} className={p.blocking ? "error" : "small muted"} style={{ marginTop: 16 }}>{p.message}</p>
+      ))}
 
       <div
         className={`drop${over ? " over" : ""}`}
@@ -81,14 +99,14 @@ export default function Home() {
           e.preventDefault();
           setOver(false);
           const file = e.dataTransfer.files[0];
-          if (file && !working) analyze(file);
+          if (file && !disabled) analyze(file);
         }}
       >
         <div>
           <p style={{ fontWeight: 500 }}>Drop your resume here</p>
           <p className="small muted">PDF or Word, up to 5 MB</p>
         </div>
-        <button className="button" disabled={working} onClick={() => input.current?.click()}>
+        <button className="button" disabled={disabled} onClick={() => input.current?.click()}>
           Choose a file
         </button>
         <input
@@ -97,7 +115,7 @@ export default function Home() {
         />
       </div>
       <label className="options">
-        <input type="checkbox" checked={correction} onChange={(e) => setCorrection(e.target.checked)} disabled={working} />
+        <input type="checkbox" checked={correction} onChange={(e) => setCorrection(e.target.checked)} disabled={disabled} />
         Fix typos before searching (your resume is still checked as written)
       </label>
       <p className="small muted" style={{ marginTop: 6 }}>

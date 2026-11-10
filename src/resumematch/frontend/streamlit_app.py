@@ -1,4 +1,4 @@
-"""Streamlit front end, the UI the course project requires.
+"""Streamlit front end: the quick local interface.
 
 Run with: streamlit run src/resumematch/frontend/streamlit_app.py
 
@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from resumematch.frontend import render  # noqa: E402 (after load_dotenv)
+from resumematch.health import check  # noqa: E402
 from resumematch.pipeline import IndexNotBuiltError, ResumeRejected, run_pipeline  # noqa: E402
 
 DOMAIN_VOCAB_PATH = Path("data/processed/domain_vocab.json")
@@ -77,10 +78,23 @@ def friendly_error(message: str, detail: str | None = None):
 st.markdown(
     '<div class="rm"><p class="tag">ResumeMatch</p>'
     '<h1 class="serif">Check your resume against real job postings</h1>'
-    '<p class="lede">Upload a resume. We find the closest postings among 107,528 from LinkedIn, check each '
-    'requirement against what your resume actually says, and show you what to work on before you apply.</p></div>',
+    '<p class="lede">Upload a resume. ResumeMatch finds the closest postings among 107,528 from LinkedIn, checks each '
+    'requirement against what your resume actually says, and shows you what to work on before you apply.</p></div>',
     unsafe_allow_html=True,
 )
+@st.cache_data(ttl=30)
+def startup_problems():
+    from resumematch.pipeline import load_config, resolve_persist_dir
+    return check(resolve_persist_dir(load_config()))
+
+
+problems = startup_problems()
+for problem in problems:
+    st.markdown(f'<div class="rm"><p class="reason{" no" if problem.blocking else ""}" style="font-size:14px">'
+                f'{render.esc(problem.message)}</p></div>', unsafe_allow_html=True)
+if any(p.blocking for p in problems):
+    st.stop()
+
 uploaded = st.file_uploader("Your resume, PDF or Word", type=["pdf", "docx"], label_visibility="collapsed")
 with st.expander("Options"):
     correction = st.toggle("Fix typos before searching", value=True,
@@ -114,7 +128,7 @@ if st.session_state.get("key") != key:
             friendly_error("The model's answer couldn't be used, even after a retry. Upload the file again to rerun it.",
                            str(error))
         except Exception:  # noqa: BLE001 - never show a traceback to a user
-            friendly_error("Something went wrong on our side. Try again, and if it keeps happening, "
+            friendly_error("Something went wrong while checking this file. Try again, and if it keeps happening, "
                            "try exporting your resume again.")
 
 result = st.session_state.result
@@ -153,7 +167,7 @@ else:
     quotes = []
 st.markdown(render.highlighted_resume(result.resume_text, quotes), unsafe_allow_html=True)
 
-# For the course: every step of the retrieval and checking, visible.
+# Every step of the retrieval and checking, visible to the reader.
 st.markdown(render.section_tag("How this was checked"), unsafe_allow_html=True)
 with st.expander(f"Search: {len(result.sections)} resume sections, {len(result.retrieved)} postings"):
     st.markdown(

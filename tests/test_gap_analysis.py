@@ -275,3 +275,26 @@ def test_plural_and_filler_differences_are_not_gaps():
 
 def test_possessive_s_is_not_a_key_term():
     assert key_terms("Bachelor's degree") == ["bachelor", "degree"]
+
+
+def test_spelled_out_names_match_abbreviations():
+    # Real false gaps on the nurse resume.
+    resume = "Staff Nurse, Medical Intensive Care Unit\nACLS, BLS, PALS\nMaria Delgado, RN"
+    for req in ("Certification in advanced cardiac life support", "Minimum of 1 year of critical care RN experience"):
+        c = claim(req, kind="missing", excerpt=f"Requires {req}.")
+        check_claims([c], resume)
+        assert c.issue == "listed as missing, but the resume mentions it", req
+
+
+def test_incomplete_phrase_is_rejected():
+    c = claim("Utilization of", kind="missing", excerpt="Utilization of invasive equipment.")
+    check_claims([c], FULL_RESUME)
+    assert c.issue == "an incomplete phrase, not a requirement"
+
+
+@pytest.mark.parametrize("perk", ["Child care", "Student loan subsidies", "Generous levels of time off",
+                                  "Supportive work environment with a focus on training"])
+def test_perks_from_whole_postings_are_benefits(perk):
+    c = claim(perk, kind="missing", excerpt=f"We offer {perk}.")
+    check_claims([c], FULL_RESUME)
+    assert c.issue == "an employer benefit, not a requirement"

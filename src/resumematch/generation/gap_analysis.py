@@ -94,7 +94,7 @@ FORMAT_REMINDER = """
 Your previous answer could not be used ({problem}). Respond again with JSON only."""
 
 
-def response_schema(num_excerpts: int) -> dict:
+def response_schema(num_excerpts: int, max_items: int = MAX_ITEMS) -> dict:
     """JSON Schema for the answer, used for constrained decoding. The
     excerpt range is built from the actual number of retrieved chunks,
     so an out-of-range citation is impossible to generate."""
@@ -105,7 +105,7 @@ def response_schema(num_excerpts: int) -> dict:
         "properties": {
             "matched": {
                 "type": "array",
-                "maxItems": MAX_ITEMS,
+                "maxItems": max_items,
                 "items": {
                     "type": "object",
                     "properties": {"requirement": text, "resume_quote": text, "excerpt": excerpt},
@@ -114,7 +114,7 @@ def response_schema(num_excerpts: int) -> dict:
             },
             "missing": {
                 "type": "array",
-                "maxItems": MAX_ITEMS,
+                "maxItems": max_items,
                 "items": {
                     "type": "object",
                     "properties": {"requirement": text, "excerpt": excerpt},
@@ -127,12 +127,21 @@ def response_schema(num_excerpts: int) -> dict:
     }
 
 
-def build_prompt(resume_text: str, retrieved_chunks: list[dict]) -> str:
+# Optional, for the per-job report: with one call over 5 postings and
+# no instruction, the model drew most items from 1-2 postings and left
+# others with nothing to show.
+COVER_EACH = "\nInclude requirements from every excerpt, about the same number from each.\n"
+
+
+def build_prompt(resume_text: str, retrieved_chunks: list[dict], cover_each: bool = False) -> str:
     chunks_text = "\n\n".join(
         f"[{i+1}] ({c.get('title', '')} at {c.get('company_name') or 'unknown company'}, job_id={c['job_id']}) {c['text']}"
         for i, c in enumerate(retrieved_chunks)
     )
-    return PROMPT_TEMPLATE.format(resume_text=resume_text, retrieved_chunks=chunks_text)
+    prompt = PROMPT_TEMPLATE.format(resume_text=resume_text, retrieved_chunks=chunks_text)
+    if cover_each:
+        prompt = prompt.replace("\nRespond with JSON only.", COVER_EACH + "\nRespond with JSON only.")
+    return prompt
 
 
 def _normalize(text: str) -> str:
@@ -158,14 +167,43 @@ expertise exposure familiarity familiar proficiency proficient understanding abi
 years year hands working work excellent good basic advanced deep demonstrated
 preferred required requirement nice have must services service tools tool concepts
 development developer programming language languages environment environments
-current s microsoft
+current s microsoft minimum certification certifications certificate certified
 """.split())
+
+
+# Written-out names -> the abbreviation, applied to BOTH the requirement
+# and the text it's checked against, so either spelling matches either.
+# Real false gaps without it: "Certification in advanced cardiac life
+# support" for a resume listing ACLS; "1 year of critical care RN
+# experience" for six years in "intensive care units". Longest first.
+_SYNONYMS = [
+    (r"advanced cardiac life support", "acls"), (r"basic life support", "bls"),
+    (r"pediatric advanced life support", "pals"), (r"critical care registered nurses?", "ccrn"),
+    (r"(medical |surgical |cardiac |pediatric )?intensive care( units?)?", "icu"), (r"critical care", "icu"),
+    (r"emergency (department|room)s?", "ed"), (r"registered nurses?", "rn"),
+    (r"bachelor of science in nursing", "bsn"), (r"master of science in nursing", "msn"),
+    (r"bachelor s?( degree)? (in|of) nursing", "bsn"), (r"master s?( degree)? (in|of) nursing", "msn"),
+    (r"nurse practitioners?", "np"), (r"electronic (health|medical) records?", "ehr"),
+    (r"certified public accountants?", "cpa"), (r"generally accepted accounting principles", "gaap"),
+    (r"enterprise resource planning", "erp"), (r"computer aided design", "cad"),
+    (r"lean six sigma", "six sigma"), (r"machine learning", "ml"), (r"artificial intelligence", "ai"),
+    (r"continuous integration", "ci"), (r"amazon web services", "aws"), (r"google cloud( platform)?", "gcp"),
+]
+_SYNONYM_RES = [(re.compile(rf"\b{pattern}\b"), abbr) for pattern, abbr in _SYNONYMS]
+
+
+def _canonical(normalized: str) -> str:
+    for pattern, abbr in _SYNONYM_RES:
+        normalized = pattern.sub(abbr, normalized)
+    return normalized
 
 
 def key_terms(requirement: str) -> list[str]:
     """The words that identify a requirement: "Experience with AWS Lambda"
-    -> ["aws", "lambda"]. Empty for pure filler ("Strong skills")."""
-    return [t for t in _normalize(requirement).split() if t not in _FILLER]
+    -> ["aws", "lambda"]. Empty for pure filler ("Strong skills").
+    Bare numbers ("1+ years") are dropped: the checks are about WHAT,
+    not how long."""
+    return [t for t in _canonical(_normalize(requirement)).split() if t not in _FILLER and not t.isdigit()]
 
 
 def _stem(word: str) -> str:
@@ -177,7 +215,7 @@ def _stem(word: str) -> str:
 
 
 def _found(terms: list[str], text: str) -> list[str]:
-    haystack = f" {' '.join(_stem(w) for w in _normalize(text).split())} "
+    haystack = f" {' '.join(_stem(w) for w in _canonical(_normalize(text)).split())} "
     return [t for t in terms if f" {_stem(t)} " in haystack]
 
 
@@ -199,9 +237,22 @@ _BENEFIT = re.compile(
     r"\b(401\s*\(?k\)?|403\s*\(?b\)?|retirement|pension|dental|vision (insurance|coverage|plan)s?|insurance|"
     r"pto|paid time off|vacation|holidays?|parental leave|relocation|tuition|reimbursement|"
     r"salary|compensation|bonus(es)?|benefits?|perks?|wellness|hybrid|remote work|work from home|"
-    r"flexible (schedule|hours)s?|schedules?|work.life balance)\b",
+    r"flexible (schedule|hours)s?|schedules?|work.life balance|"
+    # Perks text seen once whole postings went to the model (nurse run):
+    r"child ?care|student loans?|loan (forgiveness|repayment)|subsid(y|ies|ized)|time off|"
+    r"staffing (plans?|ratios?)|work environment|career (growth|development|advancement)|"
+    r"discounts?|employee assistance|sign.on|shift differentials?|commut\w*|parking)\b",
     re.IGNORECASE,
 )
+
+
+# Policy text that survives boilerplate removal in some postings.
+_EMPLOYER_STATEMENT = re.compile(
+    r"\b(equal (employment )?opportunity|eoe|affirmative action|drug.free|background check|e.verify)\b",
+    re.IGNORECASE)
+
+# A requirement cut off mid-phrase: "Utilization of", "Experience with".
+_INCOMPLETE = re.compile(r"\b(of|with|in|for|to|and|or|the|a|an|on|at|by|including)\W*$", re.IGNORECASE)
 
 
 def check_claims(claims: list[CitedClaim], resume_text: str, retrieved_chunks: list[dict] | None = None) -> None:
@@ -224,6 +275,12 @@ def check_claims(claims: list[CitedClaim], resume_text: str, retrieved_chunks: l
         terms = key_terms(claim.requirement)
         if not terms:
             claim.issue = "too vague to check against the posting"
+            continue
+        if _INCOMPLETE.search(claim.requirement):
+            claim.issue = "an incomplete phrase, not a requirement"
+            continue
+        if _EMPLOYER_STATEMENT.search(claim.requirement):
+            claim.issue = "a statement about the employer, not a requirement"
             continue
         if _BENEFIT.search(claim.requirement):
             claim.issue = "an employer benefit, not a requirement"
@@ -324,6 +381,8 @@ def run_gap_analysis(
     max_tokens: int = 1024,
     num_ctx: int = 8192,
     max_attempts: int = 2,
+    max_items: int = MAX_ITEMS,
+    cover_each: bool = False,
 ) -> GapAnalysisResult:
     """
     Generates (schema-constrained) and parses the gap analysis. With
@@ -332,8 +391,8 @@ def run_gap_analysis(
     max_tokens -> incomplete JSON, or an Ollama without schema support).
     Raises the last ValueError if every attempt fails.
     """
-    base_prompt = build_prompt(resume_text, retrieved_chunks)
-    schema = response_schema(len(retrieved_chunks))
+    base_prompt = build_prompt(resume_text, retrieved_chunks, cover_each=cover_each)
+    schema = response_schema(len(retrieved_chunks), max_items=max_items)
     prompt = base_prompt
     last_error: ValueError | None = None
     for attempt in range(1, max_attempts + 1):

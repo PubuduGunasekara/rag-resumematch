@@ -4,7 +4,8 @@
 #   2. build the index if there is no COMPLETE one (the spec's
 #      "AutomatedDownload": a fresh clone downloads and indexes the corpus
 #      itself, ~40 min on a laptop CPU)
-#   3. start Streamlit
+#   3. write posting details (location, pay) if missing
+#   4. start Streamlit
 #
 # The index (./chroma_db) and its vocabulary/boilerplate files
 # (./data/processed) are bind-mounted from the host, so an index built
@@ -25,6 +26,12 @@ else
   # A partial index from a crashed build must not be appended to.
   rm -rf "${CHROMA_DIR:?}"/*
   python scripts/build_index.py ${BUILD_INDEX_ARGS:-}
+fi
+
+# Location, pay etc. for the job cards; an index built before this file
+# existed won't have it. Seconds, and optional: the app works without it.
+if [ ! -f data/processed/posting_details.json ]; then
+  python scripts/build_posting_details.py || echo "Skipping posting details (dataset not available)."
 fi
 
 exec streamlit run src/resumematch/frontend/streamlit_app.py \

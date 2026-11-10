@@ -8,9 +8,12 @@ every claim checked against the resume and the posting it came from.
 
 Started in Fall 2026 as an NLP course project at Northeastern (CS6120). This repository is my own portfolio version, designed and built by me.
 
-**Demo:** not recorded yet. A short screen recording will go in [docs/demo/](docs/demo/).
+Instead of scoring one resume against one posting, it searches thousands of postings from a single
+resume and checks every claim it shows against the resume and the posting it cites.
 
-![The results page for a sample accountant resume](docs/images/report.png)
+Built with Claude Code assistance; the design, experiments and measurements are mine.
+
+![The results page for a sample backend engineer resume, full index](docs/images/hero-backend.png)
 
 ## Key results
 
@@ -20,11 +23,10 @@ Started in Fall 2026 as an NLP course project at Northeastern (CS6120). This rep
 | End-to-end time per resume | 13.8 s median (11.4 to 19.4 s) | M3 Pro laptop, Ollama on the Metal GPU, 3 resumes, 9 runs |
 | End-to-end, everything in Docker on CPU | 57 s median (35.5 to 72.3 s) | Docker Desktop on the same Mac (11 CPUs, 8 GB), 3 resumes, 6 runs |
 | Where the time goes | About 96% is the model writing its answer; search and fusion take 0.08 to 0.23 s | Same native runs, `scripts/benchmark.py` |
-| Tests | 213 passing | No model, index or network needed |
+| Tests | 226 passing | No model, index or network needed |
 | Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.92 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
 | Vector search recall against exact search | 0.972 mean recall@30 (0.791 before tuning) | 17 resumes, 91 sections |
-| Claims shown that fail a grounding check | 0 of 91 | 4 resumes, 2 runs each; 26 model claims dropped as not in any retrieved posting |
-| Unsupported claims from the model, before the checks | 35 of 48 "matched" claims (73%) cited a posting that didn't mention them | 6 runs, one resume, `llama3.2:3b`, lexical checker |
+| Unsupported claims from the model, before the checks | 35 of 48 "matched" claims (73%) cited a posting that didn't mention them | 6 runs, one resume, `llama3.2:3b`; counted with the same lexical checker the app runs on every claim |
 | Chunks containing legal boilerplate | 26.9% before cleanup, 2.9% after | Full index |
 
 Every number above has a source in [docs/design.md](docs/design.md#numbers-and-their-sources).
@@ -39,6 +41,13 @@ that pass are shown, and the rest are listed with the reason they failed. Rankin
 are computed in code, never asked of the model.
 
 ![The checks applied to each claim from the model](docs/images/diagram-checks.png)
+
+**What has been audited.** `scripts/audit_grounding.py` runs the full pipeline and re-applies the
+app's own checking functions to everything it shows. Over 4 resumes and 2 runs each, 0 of 91 shown
+claims failed a check, and 26 of the model's 184 claims were dropped because no retrieved posting
+mentioned them. Because the audit reuses the app's checks, this shows that the pipeline enforces its
+rules on real output. It does not show that the output is correct: that needs hand-labelled claims,
+which don't exist yet ([grounding-audit](docs/engineering-log.md#grounding-audit)).
 
 ## How it works
 
@@ -68,6 +77,8 @@ There are two interfaces on purpose. Streamlit is the quick local one: one comma
 The Next.js site is the polished one meant for other people, backed by a small FastAPI service.
 Both show exactly the same report, because all text and highlight positions come from the
 Python code.
+
+![The results page for a sample accountant resume](docs/images/report.png)
 
 ![A posting opened to show its requirements](docs/images/evidence.png)
 
@@ -139,7 +150,7 @@ The same steps are available as `make` targets:
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 213 unit tests (no model or index needed) |
+| `make test` | Run the 226 unit tests (no model or index needed) |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |

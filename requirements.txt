@@ -16,8 +16,11 @@ chromadb==0.5.23
 # keeps retries/timeouts simple)
 requests==2.32.3
 
-# Front end
+# Front ends: Streamlit (course UI) and a JSON API for the Next.js site (web/)
 streamlit==1.40.2
+fastapi==0.162.2
+uvicorn==0.54.0
+python-multipart==0.0.20
 
 # Config
 python-dotenv==1.0.1

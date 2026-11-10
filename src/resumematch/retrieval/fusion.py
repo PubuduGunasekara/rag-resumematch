@@ -112,6 +112,6 @@ def retrieve_for_resume(
     vectors = embedder.embed([s.text for s in sections])
     per_section_hits = [
         (section.heading, store.query(vector, top_k=per_section_k))
-        for section, vector in zip(sections, vectors)
+        for section, vector in zip(sections, vectors, strict=False)
     ]
     return fuse_rankings(per_section_hits, top_k=top_k, max_per_company=max_per_company)

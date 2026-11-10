@@ -1,6 +1,6 @@
 """Query-time pipeline: resume in, cited gap analysis out.
 
-Assumes scripts/build_index.py has already run — this file does NOT
+Assumes scripts/build_index.py has already run; this file does NOT
 rebuild the index on every call, since that would mean re-processing
 124k+ postings per resume upload. If the index is empty, fail loudly
 (see run_pipeline's check) rather than silently returning no matches.
@@ -11,19 +11,22 @@ from dataclasses import dataclass
 
 import yaml
 
-from resumematch.ingest.validate import ResumeRejected, validate_resume  # noqa: F401 (re-exported for the UIs)
+from resumematch.generation.gap_analysis import GapAnalysisResult, run_gap_analysis
+from resumematch.generation.job_report import JobReport, build_report
+from resumematch.generation.ollama_client import OllamaClient
+from resumematch.ingest.validate import (  # noqa: F401 (re-exported for the UIs)
+    ResumeRejected,
+    validate_resume,
+)
 from resumematch.preprocess.query_correction import CorrectionResult, correct_query
 from resumematch.preprocess.resume_sections import ResumeSection, split_resume
 from resumematch.retrieval.embedder import Embedder
 from resumematch.retrieval.fusion import retrieve_for_resume
 from resumematch.retrieval.vector_store import VectorStore
-from resumematch.generation.ollama_client import OllamaClient
-from resumematch.generation.gap_analysis import run_gap_analysis, GapAnalysisResult
-from resumematch.generation.job_report import JobReport, build_report
 
 
 class IndexNotBuiltError(RuntimeError):
-    """Raised when the vector store is empty — run scripts/build_index.py first."""
+    """Raised when the vector store is empty; run scripts/build_index.py first."""
 
 
 @dataclass
@@ -70,7 +73,7 @@ def run_pipeline(
     Input:
         resume_path: path to the uploaded resume (.pdf or .docx).
         domain_vocabulary: precomputed via build_domain_vocabulary on a
-            sample of job postings — passed in rather than rebuilt here,
+            sample of job postings, passed in rather than rebuilt here,
             since rebuilding it on every query would mean re-reading a
             posting sample on every resume upload. The Streamlit app
             builds this once at startup and reuses it.

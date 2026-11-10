@@ -15,7 +15,7 @@ import requests
 host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 model = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
 
-for attempt in range(60):
+for _attempt in range(60):
     try:
         version = requests.get(f"{host}/api/version", timeout=5).json()["version"]
         print(f"Ollama {version} is up at {host}.")

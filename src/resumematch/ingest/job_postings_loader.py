@@ -1,12 +1,12 @@
 """Downloads and batch-iterates the LinkedIn Job Postings dataset
 (Kaggle: arshkon/linkedin-job-postings, version 13: 123,849 rows).
 
-Why kagglehub and not a plain URL: this is the authoritative source we
-actually verified the schema against (job_id, title, description,
+Why kagglehub and not a plain URL: this is the authoritative source the
+schema was verified against (job_id, title, description,
 skills_desc, job_posting_url, ...). A mirror might drift or disappear;
 the original Kaggle dataset is what gets cited in the report, so it's
 what gets downloaded. The tradeoff is a Kaggle API credential is
-required at runtime (KAGGLE_USERNAME/KAGGLE_KEY env vars) — documented
+required at runtime (KAGGLE_USERNAME/KAGGLE_KEY env vars), documented
 in README setup, not baked into the image.
 
 Why chunksize iteration, not pandas.read_csv(...) in one shot: the
@@ -84,7 +84,7 @@ def iter_job_postings(csv_dir: Path, batch_size: int = 1000, dedupe: bool = True
     for batch_df in pd.read_csv(csv_path, chunksize=batch_size):
         batch = []
         for _, row in batch_df.iterrows():
-            # description/skills_desc can be NaN — never index "nan" as text
+            # description/skills_desc can be NaN; never index "nan" as text
             description = row["description"] if pd.notna(row["description"]) else ""
             skills_desc = row["skills_desc"] if pd.notna(row.get("skills_desc")) else None
             if not description.strip():
@@ -113,7 +113,7 @@ def iter_company_descriptions(csv_dir: Path, dedupe: bool = True, batch_size: in
     must count each distinct posting once."""
     seen: set[bytes] = set()
     for batch_df in pd.read_csv(csv_dir / "postings.csv", usecols=["company_name", "description"], chunksize=batch_size):
-        for company, description in zip(batch_df["company_name"], batch_df["description"]):
+        for company, description in zip(batch_df["company_name"], batch_df["description"], strict=False):
             if not isinstance(description, str) or not description.strip():
                 continue
             if dedupe:

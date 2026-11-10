@@ -4,7 +4,7 @@ retrievable chunks with citation metadata attached.
 This is the indexed side of the RAG system: every chunk must carry
 enough metadata to render a clickable citation back to the exact
 posting and section it came from (job_id -> job_posting_url, plus
-which field the text came from) — "Verifiability" in the rubric isn't
+which field the text came from) ; a citation isn't
 optional, so this isn't optional either.
 """
 
@@ -17,7 +17,7 @@ from resumematch.preprocess.boilerplate import is_boilerplate, split_sentences
 @dataclass
 class Chunk:
     text: str
-    chunk_id: str          # f"{job_id}_{section}_{index}" — unique and traceable
+    chunk_id: str          # f"{job_id}_{section}_{index}": unique and traceable
     job_id: str
     section: str           # "description" or "skills_desc"
     job_posting_url: str | None

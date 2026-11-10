@@ -1,8 +1,8 @@
 """Tests for chunk_job_posting (sentence-aware packing, overlap,
 short-tail folding, boilerplate removal)."""
 
-from resumematch.preprocess.chunker import chunk_job_posting
 from resumematch.ingest.job_postings_loader import JobPosting
+from resumematch.preprocess.chunker import chunk_job_posting
 
 
 def make_posting(description="Software Engineer role requiring Python and SQL.", skills_desc=None):

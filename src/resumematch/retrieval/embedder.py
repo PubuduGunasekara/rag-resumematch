@@ -1,5 +1,5 @@
 """Thin wrapper around sentence-transformers so the rest of the codebase
-never imports sentence_transformers directly — swapping the embedding
+never imports sentence_transformers directly; swapping the embedding
 model later means changing one file, not grepping the whole project.
 """
 

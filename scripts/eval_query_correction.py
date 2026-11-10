@@ -5,7 +5,7 @@ resumes with clean ground truth):
   1. Retrieve top-k postings for the CLEAN resume -> the reference set.
   2. Inject typos into a fraction of eligible words (lowercase, >= 5
      letters, known to the vocabulary), one random edit each, using the
-     same four operations as Assignment 3 (delete/insert/replace/swap).
+     four standard edit operations (delete/insert/replace/swap).
      Each typo is guaranteed to be a non-word, i.e. something a
      corrector could in principle detect.
   3. Retrieve for the NOISY resume, with correction OFF and ON.
@@ -43,7 +43,7 @@ VOCAB_PATH = Path("data/processed/domain_vocab.json")
 
 
 def make_typo(word: str, vocab: dict[str, float], rng: random.Random) -> str:
-    """One random Assignment-3-style edit that yields a non-word."""
+    """One random single-character edit that yields a non-word."""
     for _ in range(50):
         i = rng.randrange(len(word))
         op = rng.choice(("delete", "insert", "replace", "swap"))

@@ -1,13 +1,13 @@
-"""Query-correction preprocessing, adapted from Assignment 3's autocorrect.
+"""Query-correction preprocessing: an edit-distance autocorrect for resume text.
 
 Direction, now that the architecture is corrected: the RESUME is the
 query, job postings are the indexed corpus. So this corrects typos in
 the resume's own text (OCR artifacts from PDF extraction, e.g.
-"Pyhton", "Kubernets") before it's used to retrieve matching postings —
+"Pyhton", "Kubernets") before it's used to retrieve matching postings:
 a single corrupted token can tank embedding-similarity retrieval even
 though a human reader wouldn't notice it.
 
-Reuses the edit-distance substitution logic from Assignment 3
+Reuses edit-distance substitution logic I wrote earlier
 (probable_substitutes / min_edit_distance) directly, with the
 vocabulary built from the FULL job-postings corpus (so tech jargon like
 "faiss", "pytorch", "redis" survives as "known") rather than a generic
@@ -16,7 +16,7 @@ sample to know what's jargon vs. typo).
 
 On top of that sit resume-specific guard rails (skip URLs, acronyms,
 brand-cased names, short words; edit-distance 2 only for long words),
-because a resume -- unlike Assignment 3's typo-heavy queries -- is
+because a resume, unlike a short typo-heavy query, is
 mostly clean text full of legitimately unknown proper nouns.
 """
 
@@ -29,9 +29,9 @@ from dataclasses import dataclass
 LETTERS = string.ascii_lowercase
 
 # -----------------------------------------------------------------------
-# Reused verbatim from Assignment 3 (edit-distance autocorrect). Kept
-# here rather than imported from the coursework repo so this module has
-# no dependency on that assignment's directory structure.
+# Edit-distance autocorrect helpers, reused from my earlier code. Kept
+# here rather than imported from another repository so this module has
+# no dependency on that repository's directory structure.
 # -----------------------------------------------------------------------
 
 
@@ -107,9 +107,9 @@ def _match_case(correction: str, original: str) -> str:
 
 
 # -----------------------------------------------------------------------
-# Resume-specific guard rails (NOT from Assignment 3).
+# Resume-specific guard rails (not in the original autocorrect).
 #
-# Assignment 3 assumed a short, typo-heavy query where every unknown
+# The original autocorrect assumed a short, typo-heavy query where every unknown
 # word is probably a typo. A resume is the opposite: long, mostly clean,
 # and full of proper nouns, acronyms, product names and URLs that are
 # unknown to any vocabulary without being typos. Measured on a clean
@@ -171,7 +171,7 @@ def correct_query(
         min_token_length: unknown words shorter than this are never
             corrected (short strings almost always have a real word one
             edit away, so a "match" carries no evidence).
-        edit2_min_length: edit-distance-2 candidates (Assignment 3's
+        edit2_min_length: edit-distance-2 candidates (the original autocorrect's
             probable_substitutes) are only considered for words at least
             this long. Two edits on a 6-letter word rewrites a third of
             it (Khoury -> Hours); on a 9-letter word it's a plausible

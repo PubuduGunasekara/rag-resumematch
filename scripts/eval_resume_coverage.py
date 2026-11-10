@@ -85,7 +85,7 @@ def main():
     old, new = single_vector(text), sectioned(text)
     print(f"Top {args.top_k} postings (overlap between methods: {overlap(old, new):.2f})")
     print(f"  {'single-vector (old)':<45} | sectioned + RRF (new)")
-    for a, b in zip(old, new):
+    for a, b in zip(old, new, strict=False):
         print(f"  {a['title'][:45]:<45} | {b['title'][:40]}  [{', '.join(b['matched_sections'][:3])}]")
 
     # Sensitivity: swap the last section for an unrelated profession's.

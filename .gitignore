@@ -28,3 +28,6 @@ chroma_db/
 
 # Built release artifacts (scripts/make_sample_index.py)
 dist/
+
+# Screenshots for LinkedIn posts (not part of the project)
+linkedin-media/

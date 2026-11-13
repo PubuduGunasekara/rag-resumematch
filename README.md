@@ -23,8 +23,9 @@ Built with Claude Code assistance; the design, experiments and measurements are 
 | End-to-end time per resume | 13.8 s median (11.4 to 19.4 s) | M3 Pro laptop, Ollama on the Metal GPU, 3 resumes, 9 runs |
 | End-to-end, everything in Docker on CPU | 57 s median (35.5 to 72.3 s) | Docker Desktop on the same Mac (11 CPUs, 8 GB), 3 resumes, 6 runs |
 | Where the time goes | About 96% is the model writing its answer; search and fusion take 0.08 to 0.23 s | Same native runs, `scripts/benchmark.py` |
-| Tests | 226 passing | No model, index or network needed |
-| Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.92 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
+| Tests | 237 passing | No model, index or network needed |
+| Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.88 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
+| Typo correction, false corrections on clean resumes | 6 words in 35 files (45 before the name and word-form rules) | 35 files: the synthetic resumes in `eval/resumes/` and one test resume |
 | Vector search recall against exact search | 0.972 mean recall@30 (0.791 before tuning) | 17 resumes, 91 sections |
 | Unsupported claims from the model, before the checks | 35 of 48 "matched" claims (73%) cited a posting that didn't mention them | 6 runs, one resume, `llama3.2:3b`; counted with the same lexical checker the app runs on every claim |
 | Chunks containing legal boilerplate | 26.9% before cleanup, 2.9% after | Full index |
@@ -93,9 +94,11 @@ Each of these is a real failure I measured, with the fix and the numbers in the
   ([resume-truncation](docs/engineering-log.md#resume-truncation))
 - **Typo correction rewrote names.** It changed "Redis" to "Hedis" and, later, the company name
   "Midstate" to "Mistake". A full-corpus vocabulary and rules for names, acronyms and short
-  words brought false corrections to 0 on four clean resumes.
+  words brought false corrections to 0 on four clean resumes. Seventeen more resumes still had
+  45, mostly names and real words the corpus lacks; rules for those brought it to 6.
   ([vocab-full-corpus](docs/engineering-log.md#vocab-full-corpus),
-  [four-resumes](docs/engineering-log.md#four-resumes))
+  [four-resumes](docs/engineering-log.md#four-resumes),
+  [false-corrections](docs/engineering-log.md#false-corrections))
 - **73% of the model's matches were unsupported.** In 6 runs, 35 of 48 "matched" requirements
   cited a posting that never mentioned them. That led to checking every claim from both sides.
   ([two-sided-grounding](docs/engineering-log.md#two-sided-grounding))
@@ -150,7 +153,7 @@ The same steps are available as `make` targets:
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 226 unit tests (no model or index needed) |
+| `make test` | Run the 237 unit tests (no model or index needed) |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |

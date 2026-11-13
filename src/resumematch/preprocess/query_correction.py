@@ -138,6 +138,58 @@ def _maybe_name(token: str, line_prefix: str) -> bool:
     return token[0].isupper() and not _SENTENCE_START.search(line_prefix.rstrip())
 
 
+_PREV_CAPITALIZED = re.compile(r"([A-Z][\w'\u2019-]*)\s+$")
+_NEXT_CAPITALIZED = re.compile(r"^\s+[A-Z]")
+
+
+def _in_name_phrase(token: str, line_prefix: str, line_suffix: str) -> bool:
+    """Capitalized and next to another capitalized word with only spaces
+    between: "Brightlane Payments", "Ridgeline Robotics". A neighbour that
+    starts its line or sentence doesn't count, so "Built Kubernets
+    clusters" is still corrected."""
+    if not token[0].isupper():
+        return False
+    if _NEXT_CAPITALIZED.match(line_suffix):
+        return True
+    prev = _PREV_CAPITALIZED.search(line_prefix)
+    return bool(prev) and not _SENTENCE_START.search(line_prefix[: prev.start()].rstrip())
+
+
+_PREFIXES = ("re", "auto", "pre", "un", "sub", "multi", "co")
+
+
+def _known_variant(word: str, vocabulary: dict[str, float]) -> float:
+    """A real word the corpus happens to lack, recognised by a known
+    inflection or prefix: "retry" (retries), "skew" (skewed), "rehost"
+    (host), "debugged" (debug), "autoscaler" (autoscale). Without this the
+    corrector turned them into "retro", "sew", "repost" and "debugger".
+    Returns the probability of the most frequent known form, 0.0 if none."""
+    forms = {word + "s", word + "es", word + "ed", word + "d", word + "ing", word + "er", word + "ers"}
+    if word.endswith("y"):
+        forms |= {word[:-1] + "ies", word[:-1] + "ied", word[:-1] + "iness"}
+    for suffix in ("ing", "ed", "er", "es", "s", "ness"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            stem = word[: -len(suffix)]
+            forms |= {stem, stem + "e"}
+            if len(stem) > 3 and stem[-1] == stem[-2]:
+                forms.add(stem[:-1])  # debugged -> debug
+    for prefix in _PREFIXES:
+        if word.startswith(prefix) and len(word) - len(prefix) >= 4:
+            forms.add(word[len(prefix):])
+    return max((vocabulary[form] for form in forms if form in vocabulary), default=0.0)
+
+
+# Thresholds from corpus counts (docs/engineering-log.md, false-corrections).
+# Inside a proper-name phrase a fix must land on a common word: "Acitve
+# Directory" -> active (13,034 postings) is a typo, "Brightlane Payments" ->
+# brightline (19) is a company. A word with a known variant is corrected
+# only if the fix is far more frequent than that variant: environments
+# (8,423) vs the corpus typo "enviroment" (17) is ~495x and demos (536) vs
+# "drmo" (6) is ~89x; retro (47) vs retries (2) is ~24x, so "retry" stays.
+NAME_FIX_MIN_COUNT = 1000
+VARIANT_FIX_MIN_RATIO = 50
+
+
 def _skip_reason(token: str, min_token_length: int) -> str | None:
     """Why `token` must not be corrected, or None if it's a candidate."""
     if len(token) < min_token_length:
@@ -188,13 +240,18 @@ def correct_query(
     """
     results: list[CorrectionResult] = []
 
-    def correct_word(match: re.Match, line_prefix: str) -> str:
+    def correct_word(match: re.Match, line_prefix: str, line_suffix: str, in_name_line: bool) -> str:
         original = match.group(0)
         lower = original.lower()
 
         if lower in vocabulary_probs:
             return original  # known word (incl. domain jargon) -- never touched
         if _skip_reason(original, min_token_length) is not None:
+            return original
+        # Measured on 17 synthetic resumes (docs/engineering-log.md,
+        # false-corrections): names on the first line, multi-word proper
+        # names and real words missing from the corpus were "corrected".
+        if in_name_line:
             return original
 
         best, distance = _best_edit1_match(lower, vocabulary_probs), 1
@@ -207,17 +264,41 @@ def correct_query(
             return original
 
         candidate, candidate_prob = best
+        if _in_name_phrase(original, line_prefix, line_suffix) and candidate_prob < NAME_FIX_MIN_COUNT * count_unit:
+            return original
+        variant_prob = _known_variant(lower, vocabulary_probs)
+        if variant_prob and candidate_prob < VARIANT_FIX_MIN_RATIO * variant_prob:
+            return original
         corrected = _match_case(candidate, original)
         results.append(CorrectionResult(original, corrected, True, candidate_prob, distance))
         return corrected
+
+    # Probability of one occurrence (the vocabulary keeps words seen 2+ times).
+    count_unit = min(vocabulary_probs.values()) / 2 if vocabulary_probs else 0.0
+
+    # The first non-empty line is the candidate's name when it looks like one:
+    # short, every word capitalized, no colon ("Maria Delgado, RN, BSN", not
+    # "Tools: Docker, Kubernets"). A PDF that extracts as one long line keeps
+    # its correction.
+    first_text = len(query) - len(query.lstrip())
+    first_end = query.find("\n", first_text)
+    first_end = len(query) if first_end == -1 else first_end
+    first_line = query[first_text:first_end]
+    words = [w for w in re.split(r"[\s,]+", first_line) if w]
+    looks_like_name = 0 < len(words) <= 6 and ":" not in first_line and all(w[0].isupper() for w in words)
+    name_line_end = first_end if looks_like_name else -1
 
     def correct_span(match: re.Match) -> str:
         span = match.group(0)
         if _URLISH.search(span):
             return span
         line_start = query.rfind("\n", 0, match.start()) + 1
+        line_end = query.find("\n", match.end())
+        rest_of_line = query[match.end(): len(query) if line_end == -1 else line_end]
         return _WORD.sub(
-            lambda w: correct_word(w, query[line_start:match.start()] + span[:w.start()]), span
+            lambda w: correct_word(w, query[line_start:match.start()] + span[:w.start()],
+                                   span[w.end():] + rest_of_line, match.start() < name_line_end),
+            span,
         )
 
     corrected_query = re.sub(r"\S+", correct_span, query)

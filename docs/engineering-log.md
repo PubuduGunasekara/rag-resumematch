@@ -33,6 +33,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 23 | 2026-11-09 | Retrieval | [Every shown claim traced back to the corpus](#grounding-audit) | Adopted |
 | 24 | 2026-11-10 | Deployment | [A sample index so nobody needs a Kaggle account](#sample-index) | Adopted |
 | 25 | 2026-11-10 | Deployment | [The quick start on a fresh clone](#fresh-clone) | Adopted |
+| 26 | 2026-11-12 | Query correction | [Names and real words were "corrected" on clean resumes](#false-corrections) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -697,6 +698,63 @@ versions. The posting count is read from the index's `BUILD_COMPLETE.json` in St
 the website, and is left out when unknown. Re-checked in the fresh clone: the page now says 2,000.
 
 **Evidence.** `tests/test_pipeline.py`, `tests/test_render.py`, `tests/test_api.py`
+
+---
+
+<a id="false-corrections"></a>
+## 26. Names and real words were "corrected" on clean resumes
+
+**Query correction, 2026-11-12. Outcome: adopted.**
+
+**Problem.** While capturing screenshots, the "Typo fixes" list showed changes to words that were
+not typos. Counted on every clean file in `eval/resumes/` plus the test resume, 35 files in all
+(15 resumes as PDF and Word, 04 as PDF only, nurse, accountant and mecheng as Word; the
+12_sysadmin_helpdesk_typos files left out): 45 false corrections. Three kinds:
+
+| Kind | Examples |
+|---|---|
+| Name on the first line | Daniela to Daniel, Marquez to Marquee, Theo to The, O'Connell to Cornell |
+| Multi-word proper name | Brightlane Payments to Brightline, Ridgeline to Bridgeline |
+| Real word missing from the vocabulary | retry to retro, skew to sew, rehost to repost, Debugged to Debugger |
+
+**Hypothesis.** A name has no common neighbour in the postings, and a real word missing from the
+vocabulary usually has a known form (retries, skewed, host, debug). Using both, with word counts
+from the vocabulary, leaves names and real words alone and still fixes typos.
+
+**Method.** Three rules in `query_correction.py`, then the same count, the 8 typos in
+12_sysadmin_helpdesk_typos (the 7 listed in `eval/resumes/MANIFEST.md` plus "satisfation"), and `scripts/eval_query_correction.py` at 10% typos on the four
+resumes from earlier entries, compared with the committed corrector on the same seeds.
+
+1. A first line of at most 6 words, all capitalized and with no colon, is the candidate's name and
+   is left alone.
+2. A capitalized word next to another capitalized word, not at the start of a line, is fixed only
+   if the fix appears in at least 1,000 postings: active (13,034) passes, brightline (19) does not.
+3. A word with a known inflection, stem or prefix form is fixed only if the fix is at least 50
+   times as frequent as that form. The vocabulary holds corpus typos: "enviroment" (17) against
+   environments (8,423) is fixed; retries (2) against retro (47) is about 24 times, so "retry"
+   stays. A first version without the counts skipped 4 of those 8 typos.
+
+**Results.**
+
+| Measure | Before | After |
+|---|---|---|
+| False corrections, 35 clean files | 45 | 6 |
+| Typos fixed, 12_sysadmin_helpdesk_typos (PDF and Word) | 8 of 8 | 8 of 8 |
+| Overlap ON at 10% typos, nurse / accountant / mecheng / test resume | 0.96 / 0.92 / 0.92 / 0.98 | 0.96 / 0.88 / 0.88 / 0.98 |
+| Typos fixed exactly, same order | 87% / 87% / 88% / 82% | 87% / 87% / 84% / 82% |
+| Wrong fixes per run, same order | 0.6 / 0.6 / 0.2 / 0.8 | 0.2 / 0.4 / 0.2 / 0.8 |
+
+Across the 20 noisy runs only two injected typos changed: "passe" (from passed) and "basi" (from
+basic) are now left alone, because "passed" and "basis" exist. Each moved one run's top 10.
+
+The 6 left are Chromatic to Chromatin, flaky to flay and Desmos to Demos, each in both formats:
+single lowercase or capitalized words with a rare, close vocabulary word and no known form.
+
+**Decision.** Adopted. Fewer false corrections matter more than two ambiguous injected typos: a
+false correction changes what is searched for words the person wrote correctly, and the app shows
+each one in the report.
+
+**Evidence.** `tests/test_query_correction.py`, `scripts/eval_query_correction.py`
 
 ---
 

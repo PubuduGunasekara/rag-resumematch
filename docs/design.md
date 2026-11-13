@@ -110,7 +110,7 @@ in Python and sent to the page, so both interfaces always match.
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
-| Unit tests | 226 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-10 | `pytest -q` |
+| Unit tests | 237 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-12 | `pytest -q` |
 | Parsing and sections on synthetic resumes | All 36 fixture files (17 resumes, PDF and Word) parse into 3 or more sections; DOCX tables and a two-column PDF handled | M3 Pro | 17 resumes | 2026-11-09 | `tests/test_resume_fixtures.py`, log entries 21 and 22 |
 | The pipeline enforces its checks on real output | 0 of 91 shown claims failed a check; 26 of 184 proposed claims dropped as not in any retrieved posting. The audit reuses the app's own checking functions, so this shows the rules are applied, not that the output is correct | M3 Pro | 4 resumes, 2 runs each | 2026-11-09 | Log, [grounding-audit](engineering-log.md#grounding-audit) |
 | Full index build | 107,528 postings, 237,902 chunks, about 40 min | M3 Pro (CPU) | Full corpus | 2026-11-08 | `data/processed/build_full.log` |
@@ -146,7 +146,8 @@ in Python and sent to the page, so both interfaces always match.
 | Chunks ending at a sentence boundary | 25.9% before, 68.4% after (full index) | Log appendix, "Full-scale results" |
 | Search coverage of a 1,015-token resume | 50% as one query, 100% as sections | Log, [resume-truncation](engineering-log.md#resume-truncation) |
 | Typo overlap at 10%, software resume | 0.82 without correction, 0.98 with (5 seeds) | Re-run twice on the tuned index, 2026-11-09, identical; the earlier 0.76 and 0.80 came from the untuned index ([search-recall](engineering-log.md#search-recall)) |
-| Typo overlap at 10%, four resumes | 0.68 to 0.82 without correction, 0.92 to 0.98 with | Tuned index, 2026-11-09 (earlier values on the untuned index: 0.60 to 0.86 and 0.94 to 1.00) |
+| Typo overlap at 10%, four resumes | 0.68 to 0.82 without correction, 0.88 to 0.98 with | Tuned index, 2026-11-12, after the false-correction rules ([false-corrections](engineering-log.md#false-corrections)); 0.92 to 0.98 before them on 2026-11-09, 0.94 to 1.00 on the untuned index |
+| False typo corrections, clean resumes | 45 before, 6 after, in 35 files | Log, [false-corrections](engineering-log.md#false-corrections), 2026-11-12 |
 | Unsupported "matched" claims before the checks | 35 of 48 (73%) | Log appendix, "Generating the gap analysis": 6 runs, one resume, `llama3.2:3b`; counted with the same lexical checker the app runs at run time |
 | Constrained decoding | 8 of 8 usable on the first try | Log, [json-constrained-decoding](engineering-log.md#json-constrained-decoding) |
 | Ollama memory with `llama3.2:3b` | about 3.4 GB | Log appendix, "Deployment" |
@@ -156,7 +157,7 @@ in Python and sent to the page, so both interfaces always match.
 | End-to-end time per resume, Docker on CPU | 57.0 s median (35.5 to 72.3 s), 3 resumes, 6 runs | Log, [benchmark](engineering-log.md#benchmark) |
 | Share of time spent on generation, native | about 96% | Log, [benchmark](engineering-log.md#benchmark) |
 | Search and fusion per resume, native | 0.08 to 0.23 s (median per resume) | Log, [benchmark](engineering-log.md#benchmark) |
-| Unit tests | 226 passing | `pytest -q`, 2026-11-10 |
+| Unit tests | 237 passing | `pytest -q`, 2026-11-12 |
 
 ## Open issues
 

@@ -34,6 +34,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 24 | 2026-11-10 | Deployment | [A sample index so nobody needs a Kaggle account](#sample-index) | Adopted |
 | 25 | 2026-11-10 | Deployment | [The quick start on a fresh clone](#fresh-clone) | Adopted |
 | 26 | 2026-11-12 | Query correction | [Names and real words were "corrected" on clean resumes](#false-corrections) | Adopted |
+| 27 | 2026-11-16 | Feature | [A report for a job title, not just the 5 closest postings](#role-report) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -755,6 +756,59 @@ false correction changes what is searched for words the person wrote correctly, 
 each one in the report.
 
 **Evidence.** `tests/test_query_correction.py`, `scripts/eval_query_correction.py`
+
+---
+
+<a id="role-report"></a>
+## 27. A report for a job title, not just the 5 closest postings
+
+**Feature, 2026-11-16. Outcome: adopted.**
+
+**Problem.** The resume report reads 5 postings. A user deciding what to learn for a field needs to
+know what that field's postings ask for as a whole, not what 5 of them say.
+
+**Hypothesis.** Counting terms across every posting with a title, and keeping the ones that are much
+more frequent there than in postings in general, gives a useful list without a language model or a
+hand-made skill list.
+
+**Method.** `market/role_profile.py`. Posting titles are read once from the index metadata. A role
+matches titles that contain it as whole words, plural allowed. For each matching posting (a
+fixed-seed sample of 1,000 above that), the requirement sentences from `requirement_excerpt` are cut
+into 1- to 4-word terms that never cross a sentence, clause or "and"/"or" and never start or end on a
+filler word. A term is kept if it appears in at least 8% of the role's postings and at least 3 times
+as often as in a fixed 3,000-posting background sample; a shorter term is dropped when most of its
+uses are inside a longer one ("journal" inside "journal entries"), and plural duplicates are merged.
+A resume is matched with the claim checks' normalization. Run on four roles with a matching
+synthetic resume each.
+
+**Results.**
+
+| Role | Postings with the title | Read | Top terms | Time |
+|---|---|---|---|---|
+| Data Engineer | 331 | 331 | SQL 65%, Python 64%, cloud 54%, AWS 46%, ETL 40% | 0.6 s |
+| Registered Nurse | 2,305 | 1,000 | care 92%, nursing 77%, patient care 52%, BLS 28%, ACLS 21% | 1.8 s |
+| Accountant | 1,240 | 1,000 | accounting 94%, Excel 50%, journal entries 40%, general ledger 35%, GAAP 26% | 1.7 s |
+| Software Engineer | 1,207 | 1,000 | Computer Science 46%, testing 40%, Java 37%, Agile 36%, Python 31% | 2.1 s |
+
+Building the caches took 12.3 s (titles) and 6.7 s (background), once. Through the API, after the
+startup warm-up, a 1,000-posting role took 2.1 to 2.2 s. Every "not on your resume" result checked
+by hand was absent from the resume text (ETL, Azure, Agile and big data for the data engineer
+resume; general ledger and cash for the accountant).
+
+Two problems found while building it:
+
+| Problem | Cause | Fix |
+|---|---|---|
+| "nursing" reported missing from the nurse resume | Folding "Bachelor of Science in Nursing" to "bsn" removed the word before matching | Match against the text both with and without abbreviation folding |
+| "SQL and Airflow pipelines" kept as one term, hiding "SQL" | Terms crossed "and" | Split terms on "and", "or" and "&" |
+
+Still weak: some single words name no skill ("designing", "Heart" from American Heart Association),
+and matching is by wording, so "data models" on a resume does not count for "data modeling". A
+title with few postings ("High School Teacher": 6) gets a message to try a broader title.
+
+**Decision.** Adopted as the first of the new features. It is on the Next.js site only so far.
+
+**Evidence.** `tests/test_role_profile.py`, `tests/test_api.py`
 
 ---
 

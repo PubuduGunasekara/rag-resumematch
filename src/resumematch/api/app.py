@@ -7,6 +7,9 @@ Endpoints:
     GET  /api/health       startup problems (index, Ollama, model), each with a one-line fix
     POST /api/analyze      multipart "file" (.pdf/.docx), form "correction" (bool),
                            form "allow_unusual" (bool: "Check it anyway" after a soft warning)
+    GET  /api/roles        ?q= title suggestions for the role report
+    POST /api/role-report  form "role", optional multipart "file": what postings with
+                           that title ask for, and which of those terms the resume uses
 
 Errors are JSON {"detail": {"code", "message", "soft"}} so the site can
 show the message and, when soft is true, offer to continue.
@@ -21,6 +24,7 @@ import logging
 import tempfile
 import threading
 import traceback
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from functools import cache
 from pathlib import Path
@@ -31,6 +35,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from resumematch.frontend.render import highlight_spans
 from resumematch.health import as_dicts, check
+from resumematch.market import role_profile
 from resumematch.pipeline import (
     IndexNotBuiltError,
     PipelineResult,
@@ -39,7 +44,9 @@ from resumematch.pipeline import (
     load_config,
     resolve_persist_dir,
     run_pipeline,
+    validate_resume,
 )
+from resumematch.retrieval.vector_store import VectorStore
 
 load_dotenv()
 
@@ -47,7 +54,18 @@ VOCAB_PATH = Path("data/processed/domain_vocab.json")
 DETAILS_PATH = Path("data/processed/posting_details.json")
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
-app = FastAPI(title="ResumeMatch API", docs_url="/api/docs", openapi_url="/api/openapi.json")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Load the role-report data in the background so the first role report
+    # doesn't wait for it (about 9 s from the caches, 20 s without them).
+    def warm():
+        with suppress(Exception):  # a missing index is reported by /api/health instead
+            _role_data()
+    threading.Thread(target=warm, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="ResumeMatch API", docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 _busy = threading.Lock()
 log = logging.getLogger("resumematch.api")
 
@@ -106,8 +124,8 @@ def health() -> dict:
             "postings": indexed_postings(persist_dir)}
 
 
-@app.post("/api/analyze")
-def analyze(file: UploadFile = File(...), correction: bool = Form(True), allow_unusual: bool = Form(False)) -> dict:
+def _read_upload(file: UploadFile) -> tuple[str, bytes]:
+    """(suffix, bytes) of an uploaded resume, or a plain error."""
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in (".pdf", ".docx"):
         raise _error(415, "wrong_type", "Upload a PDF or Word (.docx) file.")
@@ -116,6 +134,80 @@ def analyze(file: UploadFile = File(...), correction: bool = Form(True), allow_u
         raise _error(413, "too_large", "That file is over 5 MB. A resume is usually well under 1 MB.")
     if not data:
         raise _error(400, "empty", "That file is empty.")
+    return suffix, data
+
+
+def _resume_text(suffix: str, data: bytes, allow_unusual: bool) -> str:
+    """Validated resume text; the temporary file is deleted either way."""
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(data)
+    try:
+        return validate_resume(tmp.name, allow_unusual=allow_unusual)[0]
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)
+
+
+@cache
+def _role_data() -> tuple[VectorStore, dict, dict]:
+    """Store, posting titles and background term counts, loaded once.
+    The first call builds the two caches if missing (about 20 s)."""
+    persist_dir = resolve_persist_dir(load_config())
+    store = VectorStore(persist_dir=persist_dir)
+    if store.count() == 0:
+        raise IndexNotBuiltError("empty index")
+    cache_dir = DETAILS_PATH.parent
+    titles = role_profile.load_titles(store, cache_dir)
+    return store, titles, role_profile.load_background(store, titles, cache_dir)
+
+
+def role_report_to_json(profile: role_profile.RoleProfile, display_role: str) -> dict:
+    headline, summary = role_profile.summarize(profile, display_role)
+    return {
+        "role": display_role, "headline": headline, "summary": summary,
+        "matched": profile.matched, "analyzed": profile.analyzed, "facts": profile.facts,
+        "with_resume": any(t.shown is not None for t in profile.terms),
+        "terms": [asdict(t) for t in profile.terms],
+    }
+
+
+@app.get("/api/roles")
+def roles(q: str = "") -> dict:
+    try:
+        _store, titles, _bg = _role_data()
+    except IndexNotBuiltError:
+        raise _error(503, "no_index", "The job postings index hasn't been built yet.") from None
+    return {"suggestions": role_profile.suggest_titles(titles, q)}
+
+
+@app.post("/api/role-report")
+def role_report(role: str = Form(...), file: UploadFile | None = File(None), allow_unusual: bool = Form(False)) -> dict:
+    display_role = " ".join(role.split())[:80]
+    if len(role_profile.normalize_role(display_role)) < 2:
+        raise _error(400, "no_role", "Enter a job title, for example Data Engineer.")
+    if display_role.islower():
+        display_role = display_role.title()
+    resume_text = None
+    if file is not None and file.filename:
+        suffix, data = _read_upload(file)
+        try:
+            resume_text = _resume_text(suffix, data, allow_unusual)
+        except ResumeRejected as rejected:
+            raise _error(422, rejected.code, rejected.message, rejected.soft) from None
+    try:
+        store, titles, background = _role_data()
+        profile = role_profile.build_role_profile(store, titles, background, display_role,
+                                                  details=_load_json(str(DETAILS_PATH)) or {}, resume_text=resume_text)
+        return role_report_to_json(profile, display_role)
+    except IndexNotBuiltError:
+        raise _error(503, "no_index", "The job postings index hasn't been built yet.") from None
+    except Exception as err:  # noqa: BLE001 - same rule as /api/analyze: no stack traces, no resume text in logs
+        log.error("role report failed: %s\n%s", type(err).__name__, "".join(traceback.format_tb(err.__traceback__)))
+        raise _error(500, "internal", "Something went wrong while building this report. Try again.") from None
+
+
+@app.post("/api/analyze")
+def analyze(file: UploadFile = File(...), correction: bool = Form(True), allow_unusual: bool = Form(False)) -> dict:
+    suffix, data = _read_upload(file)
     if not _busy.acquire(blocking=False):
         raise _error(429, "busy", "Another resume is being checked right now. Try again in a minute.")
     path = None

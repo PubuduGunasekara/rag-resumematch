@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Sans, Source_Serif_4 } from "next/font/google";
 import Link from "next/link";
+import Nav from "@/components/Nav";
 import "./globals.css";
 
 // Self-hosted at build time by next/font: no request to Google at runtime.
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <header className="site-header">
           <Link href="/" className="wordmark">ResumeMatch</Link>
+          <Nav />
         </header>
         <main>{children}</main>
         <footer className="site-footer">

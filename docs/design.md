@@ -93,6 +93,13 @@ public-facing one; it calls a FastAPI service (`api/app.py`) that wraps the same
 All text a user reads is produced in Python, and highlight positions in the resume are computed
 in Python and sent to the page, so both interfaces always match.
 
+The role report (`market/role_profile.py`, `/api/role-report`, `web/app/role/`) is on the
+Next.js site only so far. It reads every posting whose title matches a role (whole words, plural
+allowed), extracts 1- to 4-word terms from their requirement sentences, and keeps terms in at least
+8% of those postings and at least 3 times as frequent as in a fixed 3,000-posting background
+sample. Posting titles and background counts are cached in `data/processed/` the first time; delete
+both files after rebuilding the index.
+
 ## Deployment
 
 - **Laptop:** the app runs natively or in Docker; Ollama runs natively to use the Metal GPU.
@@ -110,7 +117,8 @@ in Python and sent to the page, so both interfaces always match.
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
-| Unit tests | 237 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-12 | `pytest -q` |
+| Unit tests | 249 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Role report time | 0.6 s (331 postings) to 2.1 s (1,000 postings); 2.1 to 2.2 s through the API | M3 Pro | Data Engineer, Registered Nurse, Accountant, Software Engineer | 2026-11-16 | Log, [role-report](engineering-log.md#role-report) |
 | Parsing and sections on synthetic resumes | All 36 fixture files (17 resumes, PDF and Word) parse into 3 or more sections; DOCX tables and a two-column PDF handled | M3 Pro | 17 resumes | 2026-11-09 | `tests/test_resume_fixtures.py`, log entries 21 and 22 |
 | The pipeline enforces its checks on real output | 0 of 91 shown claims failed a check; 26 of 184 proposed claims dropped as not in any retrieved posting. The audit reuses the app's own checking functions, so this shows the rules are applied, not that the output is correct | M3 Pro | 4 resumes, 2 runs each | 2026-11-09 | Log, [grounding-audit](engineering-log.md#grounding-audit) |
 | Full index build | 107,528 postings, 237,902 chunks, about 40 min | M3 Pro (CPU) | Full corpus | 2026-11-08 | `data/processed/build_full.log` |
@@ -157,7 +165,8 @@ in Python and sent to the page, so both interfaces always match.
 | End-to-end time per resume, Docker on CPU | 57.0 s median (35.5 to 72.3 s), 3 resumes, 6 runs | Log, [benchmark](engineering-log.md#benchmark) |
 | Share of time spent on generation, native | about 96% | Log, [benchmark](engineering-log.md#benchmark) |
 | Search and fusion per resume, native | 0.08 to 0.23 s (median per resume) | Log, [benchmark](engineering-log.md#benchmark) |
-| Unit tests | 237 passing | `pytest -q`, 2026-11-12 |
+| Unit tests | 249 passing | `pytest -q`, 2026-11-16 |
+| Role report caches | Titles 12.3 s, background terms 6.7 s, built once | Log, [role-report](engineering-log.md#role-report), 2026-11-16 |
 
 ## Open issues
 

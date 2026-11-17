@@ -47,3 +47,29 @@ export interface Report {
     attempts: number;
   };
 }
+
+// Mirrors resumematch.api.app.role_report_to_json.
+export interface RoleTerm {
+  term: string;
+  postings: number;
+  share: number;
+  lift: number;
+  shown: boolean | null;
+  examples: { job_id: string; title: string; company: string | null; url: string | null }[];
+}
+
+export interface RoleReport {
+  role: string;
+  headline: string;
+  summary: string;
+  matched: number;
+  analyzed: number;
+  with_resume: boolean;
+  terms: RoleTerm[];
+  facts: {
+    remote_share?: number;
+    salary_listed_share?: number;
+    top_locations?: { name: string; postings: number }[];
+    work_types?: { name: string; postings: number }[];
+  };
+}

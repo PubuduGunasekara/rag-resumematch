@@ -117,3 +117,39 @@ def test_report_and_health_use_the_index_count(monkeypatch):
     c = TestClient(api.app)
     assert c.post("/api/analyze", files={"file": ("cv.docx", b"x")}).json()["total_postings"] == 2000
     assert c.get("/api/health").json()["postings"] == 2000
+
+
+def _fake_role_data(monkeypatch):
+    from resumematch.market import role_profile as rp
+    titles = {str(i): ["Data Engineer", "Co", f"https://x/{i}"] for i in range(20)}
+    texts = {str(i): "Requirements: SQL and Airflow." for i in range(20)}
+
+    class Store:
+        def get_postings_text(self, ids):
+            return {j: [{"text": texts[j], "section": "description"}] for j in ids}
+    monkeypatch.setattr(api, "_role_data", lambda: (Store(), titles, {"postings": 100, "df": {}}))
+    return rp
+
+
+def test_role_suggestions(monkeypatch):
+    _fake_role_data(monkeypatch)
+    body = TestClient(api.app).get("/api/roles", params={"q": "data"}).json()
+    assert body["suggestions"] == [{"title": "Data Engineer", "postings": 20}]
+
+
+def test_role_report_without_and_with_resume(monkeypatch):
+    _fake_role_data(monkeypatch)
+    monkeypatch.setattr(api, "_resume_text", lambda *a: "I write SQL every day.")
+    c = TestClient(api.app)
+    body = c.post("/api/role-report", data={"role": "data engineer"}).json()
+    assert body["role"] == "Data Engineer" and body["analyzed"] == 20 and body["with_resume"] is False
+    assert {t["term"] for t in body["terms"]} >= {"SQL", "Airflow"}
+    body = c.post("/api/role-report", data={"role": "data engineer"}, files={"file": ("cv.pdf", b"%PDF")}).json()
+    shown = {t["term"]: t["shown"] for t in body["terms"]}
+    assert shown["SQL"] is True and shown["Airflow"] is False and "Airflow" in body["summary"]
+
+
+def test_role_report_needs_a_role(monkeypatch):
+    _fake_role_data(monkeypatch)
+    r = TestClient(api.app).post("/api/role-report", data={"role": " - "})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "no_role"

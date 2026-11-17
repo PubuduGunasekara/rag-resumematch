@@ -23,7 +23,7 @@ Built with Claude Code assistance; the design, experiments and measurements are 
 | End-to-end time per resume | 13.8 s median (11.4 to 19.4 s) | M3 Pro laptop, Ollama on the Metal GPU, 3 resumes, 9 runs |
 | End-to-end, everything in Docker on CPU | 57 s median (35.5 to 72.3 s) | Docker Desktop on the same Mac (11 CPUs, 8 GB), 3 resumes, 6 runs |
 | Where the time goes | About 96% is the model writing its answer; search and fusion take 0.08 to 0.23 s | Same native runs, `scripts/benchmark.py` |
-| Tests | 237 passing | No model, index or network needed |
+| Tests | 249 passing | No model, index or network needed |
 | Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.88 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
 | Typo correction, false corrections on clean resumes | 6 words in 35 files (45 before the name and word-form rules) | 35 files: the synthetic resumes in `eval/resumes/` and one test resume |
 | Vector search recall against exact search | 0.972 mean recall@30 (0.791 before tuning) | 17 resumes, 91 sections |
@@ -82,6 +82,18 @@ Python code.
 ![The results page for a sample accountant resume](docs/images/report.png)
 
 ![A posting opened to show its requirements](docs/images/evidence.png)
+
+### Role report
+
+The resume report reads the 5 postings closest to a resume. The role report ("Explore a role" on
+the site) reads every indexed posting with a given title, for example 331 for Data Engineer and a
+fixed sample of 1,000 of the 2,305 Registered Nurse postings. It lists the terms their requirement
+sentences use most, kept only when they appear at least 3 times as often as in a fixed sample of
+3,000 postings of any kind, so words every posting uses drop out without a hand-made skill list.
+With a resume, each term is marked as on it or not, using the same matching as the claim checks.
+Each term links to example postings. No language model is involved; a report takes 0.6 to 2.1 s.
+It is on the Next.js site only for now.
+([role-report](docs/engineering-log.md#role-report))
 
 ## What went wrong first
 
@@ -153,7 +165,7 @@ The same steps are available as `make` targets:
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 237 unit tests (no model or index needed) |
+| `make test` | Run the 249 unit tests (no model or index needed) |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |
@@ -223,6 +235,7 @@ src/resumematch/
   preprocess/    chunker.py, boilerplate.py, resume_sections.py, query_correction.py
   retrieval/     embedder.py, vector_store.py, fusion.py
   generation/    ollama_client.py, gap_analysis.py, job_report.py, text_clean.py
+  market/        role_profile.py (role report: terms across all postings with one title)
   frontend/      streamlit_app.py, render.py
   api/           app.py (FastAPI for the Next.js site)
   pipeline.py    runs steps 2 to 9 for one resume

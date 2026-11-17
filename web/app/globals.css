@@ -141,3 +141,34 @@ details.how ul, details.how ol { margin: 10px 0 0; padding-left: 20px; color: va
   .drop { flex-direction: column; align-items: flex-start; }
   .learn { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 }
+
+/* Navigation and the role report */
+.site-nav { display: flex; gap: 18px; font-size: 14px; }
+.site-nav a { text-decoration: none; color: var(--graphite); }
+.site-nav a[aria-current="page"] { color: var(--ink); text-decoration: underline; text-underline-offset: 6px; }
+.role-form { margin-top: 32px; display: grid; gap: 14px; }
+.role-form label { display: grid; gap: 6px; font-size: 14px; color: var(--graphite); }
+.role-form input[type="text"] {
+  font: inherit; font-size: 16px; padding: 10px 12px; border: 1px solid var(--hairline-strong);
+  background: #fff; color: var(--ink); border-radius: 2px; max-width: 420px;
+}
+.role-form input[type="file"] { font: inherit; font-size: 14px; }
+.role-form .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.suggest { display: flex; flex-wrap: wrap; gap: 8px; }
+.suggest button {
+  font: inherit; font-size: 13px; padding: 4px 10px; border: 1px solid var(--hairline-strong);
+  background: transparent; color: var(--ink); border-radius: 999px; cursor: pointer;
+}
+.suggest button:hover { border-color: var(--ink); }
+.term { border-top: 1px solid var(--hairline); padding: 10px 0; font-size: 14.5px; }
+.term-row { display: grid; grid-template-columns: minmax(0, 1fr) 150px 120px; gap: 18px; align-items: center; }
+.term-row .meter { height: 5px; background: var(--hairline); }
+.term-row .meter div { height: 5px; background: var(--ink); }
+.term-row .pct { font-size: 13px; color: var(--graphite); }
+.term details { margin-top: 4px; font-size: 13px; color: var(--graphite); }
+.term details summary { cursor: pointer; }
+.term details ul { margin: 6px 0 0; padding-left: 18px; }
+@media (max-width: 600px) {
+  .term-row { grid-template-columns: minmax(0, 1fr) 90px; }
+  .term-row .status-cell { grid-column: 1 / -1; }
+}

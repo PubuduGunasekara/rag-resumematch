@@ -105,6 +105,34 @@ class VectorStore:
             "company_name": meta.get("company_name") or None,
         } for _, text, meta in rows]
 
+    def iter_metadata(self, batch_size: int = 50_000):
+        """Every chunk's metadata, in batches. Used once to build the
+        posting-title cache for role reports (about 15 s on the full index)."""
+        collection, offset = self._get_collection(), 0
+        while True:
+            result = collection.get(include=["metadatas"], limit=batch_size, offset=offset)
+            if not result["ids"]:
+                return
+            yield from result["metadatas"]
+            offset += batch_size
+
+    def get_postings_text(self, job_ids: list[str], batch_size: int = 200) -> dict[str, list[dict]]:
+        """job_id -> that posting's chunks ({"text", "section", ...}), for many
+        postings at once. Order within a posting follows get_posting_chunks."""
+        out: dict[str, list[dict]] = {}
+        collection = self._get_collection()
+        for start in range(0, len(job_ids), batch_size):
+            batch = [str(j) for j in job_ids[start:start + batch_size]]
+            result = collection.get(where={"job_id": {"$in": batch}}, include=["documents", "metadatas"])
+            for chunk_id, text, meta in zip(result["ids"], result["documents"], result["metadatas"], strict=False):
+                out.setdefault(meta["job_id"], []).append(
+                    {"id": chunk_id, "text": text, "section": meta["section"], "title": meta["title"],
+                     "job_id": meta["job_id"], "job_posting_url": meta["job_posting_url"] or None,
+                     "company_name": meta.get("company_name") or None})
+        for chunks in out.values():
+            chunks.sort(key=lambda c: (c["section"] != "description", int(c["id"].rsplit("_", 1)[-1])))
+        return out
+
     def count(self) -> int:
         """Number of chunks currently indexed, used by build_index.py to
         report progress and by the Streamlit app to show a "index not

@@ -94,3 +94,19 @@ def test_no_password_configured_means_no_sign_in(monkeypatch):
 def test_unknown_role_name_is_a_programming_error():
     with pytest.raises(ValueError):
         auth.require_role("superuser")
+
+
+def test_demo_accounts_show_the_password_only_when_public(monkeypatch):
+    monkeypatch.setenv("DEMO_PASSWORD", PASSWORD)
+    monkeypatch.setenv("DEMO_PASSWORD_PUBLIC", "1")
+    auth.state.reset()
+    try:
+        body = TestClient(api.app).get("/api/auth/demo-accounts").json()
+        assert body["password"] == PASSWORD and len(body["accounts"]) == 4
+        assert {a["role_label"] for a in body["accounts"]} == set(auth.ROLE_LABELS.values())
+        assert all(a["does"] for a in body["accounts"])
+        monkeypatch.setenv("DEMO_PASSWORD_PUBLIC", "0")
+        auth.state.reset()
+        assert TestClient(api.app).get("/api/auth/demo-accounts").json()["password"] is None
+    finally:
+        auth.state.reset()

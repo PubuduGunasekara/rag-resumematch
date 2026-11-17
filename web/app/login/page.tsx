@@ -1,15 +1,10 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { homeFor, type Role } from "@/lib/session";
 
-const DEMO_ACCOUNTS: { email: string; label: string; does: string }[] = [
-  { email: "seeker@example.com", label: "Job seeker", does: "Check a resume against postings, explore roles" },
-  { email: "recruiter@example.com", label: "Recruiter", does: "Explore what postings for a role ask for" },
-  { email: "advisor@example.com", label: "Career advisor", does: "Check students' resumes, explore roles" },
-  { email: "admin@example.com", label: "Admin", does: "Everything, plus accounts and sign-ins" },
-];
+type DemoAccount = { email: string; role_label: string; does: string };
 
 function LoginForm() {
   const next = useSearchParams().get("next");
@@ -17,6 +12,25 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [accounts, setAccounts] = useState<DemoAccount[]>([]);
+  const [demoPassword, setDemoPassword] = useState<string | null>(null);
+  const submitButton = useRef<HTMLButtonElement>(null);
+
+  // The API lists the demo accounts, and the shared password when the
+  // operator has made it public (DEMO_PASSWORD_PUBLIC=1).
+  useEffect(() => {
+    fetch("/api/auth/demo-accounts")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => { if (b) { setAccounts(b.accounts); setDemoPassword(b.password); } })
+      .catch(() => {});
+  }, []);
+
+  function pick(account: DemoAccount) {
+    setEmail(account.email);
+    if (demoPassword) setPassword(demoPassword);
+    setError(null);
+    submitButton.current?.focus();
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,7 +55,12 @@ function LoginForm() {
     <>
       <p className="tag">Sign in</p>
       <h1 className="serif">Sign in to ResumeMatch</h1>
-      <p className="lede">This is a demo with one account per role. All four share the demo password set in the server&apos;s <code>.env</code> file.</p>
+      <p className="lede">
+        This is a demo with one account per role.{" "}
+        {demoPassword
+          ? "Pick a role below to fill in its email and password, then sign in."
+          : "All four share the demo password set in the server's .env file."}
+      </p>
 
       <form className="role-form" onSubmit={submit}>
         <label>
@@ -53,20 +72,25 @@ function LoginForm() {
           <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </label>
         <div className="row">
-          <button className="button" type="submit" disabled={working}>{working ? "Signing in" : "Sign in"}</button>
+          <button ref={submitButton} className="button" type="submit" disabled={working}>{working ? "Signing in" : "Sign in"}</button>
         </div>
       </form>
       {error && <div className="error-box" role="alert"><p className="error">{error}</p></div>}
 
-      <div className="section">
-        <p className="tag">Demo accounts</p>
-        {DEMO_ACCOUNTS.map((a) => (
-          <div className="learn" key={a.email}>
-            <span><b style={{ fontWeight: 500 }}>{a.label}</b><br /><span className="small muted">{a.does}</span></span>
-            <button type="button" className="button ghost" onClick={() => setEmail(a.email)}>Use {a.email.split("@")[0]}</button>
-          </div>
-        ))}
-      </div>
+      {accounts.length > 0 && (
+        <div className="section">
+          <p className="tag">Demo accounts</p>
+          {accounts.map((a) => (
+            <div className="learn" key={a.email}>
+              <span><b style={{ fontWeight: 500 }}>{a.role_label}</b><br /><span className="small muted">{a.does}</span></span>
+              <button type="button" className="button ghost" aria-pressed={email === a.email} onClick={() => pick(a)}
+                      aria-label={`Fill in the ${a.role_label} account`}>
+                {demoPassword ? "Fill in" : "Use email"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

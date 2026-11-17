@@ -8,6 +8,7 @@ Endpoints:
     POST /api/auth/login   JSON {"email", "password"}: sets the session cookie
     POST /api/auth/logout  clears it
     GET  /api/auth/me      the signed-in user
+    GET  /api/auth/demo-accounts  the demo accounts, and the password when it's public (public)
     GET  /api/admin/overview  accounts, recent sign-ins, index size (admin only)
     POST /api/analyze      multipart "file" (.pdf/.docx), form "correction" (bool),
                            form "allow_unusual" (bool: "Check it anyway" after a soft warning)
@@ -164,6 +165,16 @@ def login(body: LoginBody, response: Response) -> dict:
 def logout(response: Response) -> dict:
     response.delete_cookie(auth.COOKIE_NAME, path="/")
     return {"ok": True}
+
+
+@app.get("/api/auth/demo-accounts")
+def demo_accounts() -> dict:
+    """For the login page: one entry per role, plus the shared password if
+    DEMO_PASSWORD_PUBLIC=1, so picking a role fills in both fields."""
+    return {
+        "accounts": [{**u.public(), "does": auth.ROLE_DESCRIPTIONS[u.role]} for u in auth.DEMO_USERS.values()],
+        "password": auth.state.public_password,
+    }
 
 
 @app.get("/api/auth/me")

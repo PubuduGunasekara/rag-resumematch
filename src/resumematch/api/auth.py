@@ -1,7 +1,10 @@
 """Sign-in and roles for the API.
 
 Demo set-up: four fixed accounts, one per role, sharing one password
-read from DEMO_PASSWORD (.env). The password is never stored, only its
+read from DEMO_PASSWORD (.env). With DEMO_PASSWORD_PUBLIC=1 (the default in
+.env.example) the password is meant to be public: the README lists it and
+the login page fills it in when a role is picked, so anyone can try the
+system. Set it to 0 with a private password to close the demo. The password is never stored, only its
 scrypt hash, computed when the module loads. Sessions are a signed token
 (payload + HMAC-SHA256 with SESSION_SECRET) in an HttpOnly cookie, so
 page scripts can't read it and the Next.js proxy passes it through with
@@ -40,6 +43,12 @@ FAILED_WINDOW_SECONDS = 300    # ... within this window, then refused until it p
 
 ROLES = ("seeker", "recruiter", "advisor", "admin")
 ROLE_LABELS = {"seeker": "Job seeker", "recruiter": "Recruiter", "advisor": "Career advisor", "admin": "Admin"}
+ROLE_DESCRIPTIONS = {
+    "seeker": "Check a resume against postings, explore roles",
+    "recruiter": "Explore what postings for a role ask for",
+    "advisor": "Check students' resumes, explore roles",
+    "admin": "Everything, plus accounts and recent sign-ins",
+}
 
 
 @dataclass(frozen=True)
@@ -172,7 +181,10 @@ class AuthState:
 
     def reset(self) -> None:
         """Re-read DEMO_PASSWORD and SESSION_SECRET (tests change them)."""
-        self.passwords = PasswordBook(os.environ.get("DEMO_PASSWORD"))
+        password = os.environ.get("DEMO_PASSWORD")
+        self.passwords = PasswordBook(password)
+        # Shown on the login page only when the operator says it's public.
+        self.public_password = password if password and os.environ.get("DEMO_PASSWORD_PUBLIC") == "1" else None
         self.secret = _secret()
         self.failed = FailedLogins()
         self.recent: deque = deque(maxlen=20)   # recent sign-ins for the admin page: email, role, time

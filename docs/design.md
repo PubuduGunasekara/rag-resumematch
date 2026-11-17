@@ -108,7 +108,8 @@ intersects the set with the postings that match the title.
 
 The Next.js site requires sign-in (`api/auth.py`). Four fixed demo accounts, one per role (job
 seeker, recruiter, career advisor, admin), share a password from `DEMO_PASSWORD`, kept only as a
-salted scrypt hash. Sessions are an HMAC-signed token (`SESSION_SECRET`) in an HttpOnly,
+salted scrypt hash. With `DEMO_PASSWORD_PUBLIC=1` (the default) the password is public: the README
+lists it and `/api/auth/demo-accounts` returns it so the login page can fill it in. Sessions are an HMAC-signed token (`SESSION_SECRET`) in an HttpOnly,
 SameSite=Lax cookie, valid 8 hours; `COOKIE_SECURE=1` adds Secure for HTTPS. Every endpoint except
 `/api/health` names the roles it allows, and the API enforces them; the site's middleware only
 redirects signed-out visitors to `/login`, and the header hides pages a role can't open. The
@@ -131,7 +132,7 @@ Docker images still run Streamlit only, which has no sign-in.
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
-| Unit tests | 272 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Unit tests | 273 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
 | Filtered retrieval | Every returned posting passed its filters; 0.10 to 0.98 s for the retrieval step | M3 Pro | One resume, 5 filter sets, full index; 2 full reports with the model | 2026-11-16 | Log, [search-filters](engineering-log.md#search-filters) |
 | Role checks | Recruiter gets 403 from `/api/analyze` and `/api/admin/overview`, 200 from `/api/roles`; signed out gets 401; the session cookie is not readable by page scripts | Chrome (in-app browser), local | All four demo accounts | 2026-11-16 | Log, [sign-in](engineering-log.md#sign-in) |
 | Role report time | 0.6 s (331 postings) to 2.1 s (1,000 postings); 2.1 to 2.2 s through the API | M3 Pro | Data Engineer, Registered Nurse, Accountant, Software Engineer | 2026-11-16 | Log, [role-report](engineering-log.md#role-report) |
@@ -181,7 +182,7 @@ Docker images still run Streamlit only, which has no sign-in.
 | End-to-end time per resume, Docker on CPU | 57.0 s median (35.5 to 72.3 s), 3 resumes, 6 runs | Log, [benchmark](engineering-log.md#benchmark) |
 | Share of time spent on generation, native | about 96% | Log, [benchmark](engineering-log.md#benchmark) |
 | Search and fusion per resume, native | 0.08 to 0.23 s (median per resume) | Log, [benchmark](engineering-log.md#benchmark) |
-| Unit tests | 272 passing | `pytest -q`, 2026-11-16 |
+| Unit tests | 273 passing | `pytest -q`, 2026-11-16 |
 | Postings with a level / a salary / only "United States" as location | 75% / 31% / 7% of 107,526 | `posting_details.json` joined with the index, 2026-11-16 |
 | Role report caches | Titles 12.3 s, background terms 6.7 s, built once | Log, [role-report](engineering-log.md#role-report), 2026-11-16 |
 

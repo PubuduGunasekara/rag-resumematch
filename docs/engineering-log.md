@@ -850,6 +850,12 @@ Tested with unit tests through the real API and by signing in as each account in
 | 5 failed attempts, then the right password | 429 |
 | No `DEMO_PASSWORD` set | Sign-in refused with the fix in the message; `/api/health` reports it as blocking |
 
+**Later change, same day.** To let anyone try the system, the demo password became public: the
+default `resumematch-demo` is in the README and `.env.example`, and with `DEMO_PASSWORD_PUBLIC=1`
+`/api/auth/demo-accounts` returns it, so "Fill in" on the login page enters email and password.
+Setting `DEMO_PASSWORD_PUBLIC=0` and a private password closes the demo again. Tested with
+`tests/test_auth.py` and by signing in as the career advisor with "Fill in" and Enter.
+
 **Decision.** Adopted. Limits, on purpose for a demo: accounts are fixed in code, recent sign-ins
 live in memory, and the Docker images still run only Streamlit, which has no sign-in. Accounts in a
 database come with the features that store data.

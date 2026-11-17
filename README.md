@@ -23,7 +23,7 @@ Built with Claude Code assistance; the design, experiments and measurements are 
 | End-to-end time per resume | 13.8 s median (11.4 to 19.4 s) | M3 Pro laptop, Ollama on the Metal GPU, 3 resumes, 9 runs |
 | End-to-end, everything in Docker on CPU | 57 s median (35.5 to 72.3 s) | Docker Desktop on the same Mac (11 CPUs, 8 GB), 3 resumes, 6 runs |
 | Where the time goes | About 96% is the model writing its answer; search and fusion take 0.08 to 0.23 s | Same native runs, `scripts/benchmark.py` |
-| Tests | 272 passing | No model, index or network needed |
+| Tests | 273 passing | No model, index or network needed |
 | Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.88 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
 | Typo correction, false corrections on clean resumes | 6 words in 35 files (45 before the name and word-form rules) | 35 files: the synthetic resumes in `eval/resumes/` and one test resume |
 | Vector search recall against exact search | 0.972 mean recall@30 (0.791 before tuning) | 17 resumes, 91 sections |
@@ -160,15 +160,16 @@ cp .env.example .env    # add KAGGLE_USERNAME and KAGGLE_KEY (Kaggle > Settings 
 .venv/bin/python scripts/build_index.py   # full corpus, about 40 minutes on an M3 Pro (531 MB download)
 ```
 
-To run the Next.js site instead, set a demo password, then start the API and the web server:
+To run the Next.js site instead, copy the example settings, then start the API and the web server:
 
 ```bash
-cp .env.example .env    # set DEMO_PASSWORD and SESSION_SECRET (the file shows how to generate them)
+cp .env.example .env    # the demo accounts work as is; add a SESSION_SECRET to keep sign-ins across restarts
 .venv/bin/uvicorn resumematch.api.app:app --host 127.0.0.1 --port 8000
 cd web && npm install && npm run dev    # http://localhost:3100
 ```
 
-The site needs a sign-in. There is one demo account per role, all with the password from `.env`:
+The site needs a sign-in. There is one demo account per role, and all four use the password
+**resumematch-demo**. On the login page, "Fill in" next to a role enters both for you.
 
 | Account | Role | Can use |
 |---|---|---|
@@ -176,6 +177,10 @@ The site needs a sign-in. There is one demo account per role, all with the passw
 | recruiter@example.com | Recruiter | Role report |
 | advisor@example.com | Career advisor | Resume check, role report |
 | admin@example.com | Admin | Everything, plus an overview of accounts and recent sign-ins |
+
+The demo password is public on purpose, so anyone can try the system. To close a deployment, set
+your own `DEMO_PASSWORD` and `DEMO_PASSWORD_PUBLIC=0` in `.env`; the login page then stops
+filling in the password.
 
 The API checks the session and the role on every request; the site only hides links a role can't
 use. Streamlit is a local developer tool and has no sign-in.
@@ -189,7 +194,7 @@ The same steps are available as `make` targets:
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 272 unit tests (no model or index needed) |
+| `make test` | Run the 273 unit tests (no model or index needed) |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |
@@ -243,8 +248,8 @@ and Next.js telemetry in CI. Server error logs record the error type and stack, 
 message, because a message could quote the resume. Two things do use the network: the one-time
 dataset download from Kaggle and the one-time embedding model download from Hugging Face.
 
-Sign-in on the Next.js site uses fixed demo accounts. The password is read from `.env` and kept
-only as a salted scrypt hash; the session is a signed token in an HttpOnly cookie that page
+Sign-in on the Next.js site uses fixed demo accounts. Their shared password is public by default
+(see Try it). The server keeps it only as a salted scrypt hash; the session is a signed token in an HttpOnly cookie that page
 scripts can't read, valid for 8 hours. After 5 failed attempts in 5 minutes an account is refused
 until the window passes. Recent sign-ins (email, role, time) are kept in memory for the admin page
 and are gone when the API restarts.

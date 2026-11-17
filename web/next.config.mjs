@@ -11,6 +11,8 @@ const nextConfig = {
   // An analysis takes ~20 s warm and up to a minute cold; the default
   // proxy timeout (30 s) would cut the first one off.
   experimental: { proxyTimeout: 120_000 },
+  // No development badge in the corner (it showed up in screenshots).
+  devIndicators: false,
 };
 
 export default nextConfig;

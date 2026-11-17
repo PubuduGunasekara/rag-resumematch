@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Sans, Source_Serif_4 } from "next/font/google";
 import Link from "next/link";
 import Nav from "@/components/Nav";
+import { SessionProvider } from "@/lib/session";
 import "./globals.css";
 
 // Self-hosted at build time by next/font: no request to Google at runtime.
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${sans.variable} ${serif.variable}`}>
       <body>
+        <SessionProvider>
         <header className="site-header">
           <Link href="/" className="wordmark">ResumeMatch</Link>
           <Nav />
@@ -25,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <footer className="site-footer">
           Postings from LinkedIn Job Postings 2023 to 2024 by Arsh Koneru, CC BY-SA 4.0. Listings may have closed.
         </footer>
+        </SessionProvider>
       </body>
     </html>
   );

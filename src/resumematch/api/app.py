@@ -4,12 +4,19 @@ Next.js site in web/.
 Run with: uvicorn resumematch.api.app:app --port 8000
 
 Endpoints:
-    GET  /api/health       startup problems (index, Ollama, model), each with a one-line fix
+    GET  /api/health       startup problems (index, Ollama, model), each with a one-line fix (public)
+    POST /api/auth/login   JSON {"email", "password"}: sets the session cookie
+    POST /api/auth/logout  clears it
+    GET  /api/auth/me      the signed-in user
+    GET  /api/admin/overview  accounts, recent sign-ins, index size (admin only)
     POST /api/analyze      multipart "file" (.pdf/.docx), form "correction" (bool),
                            form "allow_unusual" (bool: "Check it anyway" after a soft warning)
     GET  /api/roles        ?q= title suggestions for the role report
     POST /api/role-report  form "role", optional multipart "file": what postings with
                            that title ask for, and which of those terms the resume uses
+
+Every endpoint except health needs a signed-in user, and each names the
+roles it allows (see api/auth.py).
 
 Errors are JSON {"detail": {"code", "message", "soft"}} so the site can
 show the message and, when soft is true, offer to continue.
@@ -21,6 +28,7 @@ a clear 429 instead of waiting in a hidden queue.
 
 import json
 import logging
+import os
 import tempfile
 import threading
 import traceback
@@ -31,8 +39,10 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
+from pydantic import BaseModel
 
+from resumematch.api import auth
 from resumematch.frontend.render import highlight_spans
 from resumematch.health import as_dicts, check
 from resumematch.market import role_profile
@@ -49,6 +59,7 @@ from resumematch.pipeline import (
 from resumematch.retrieval.vector_store import VectorStore
 
 load_dotenv()
+auth.state.reset()  # read DEMO_PASSWORD and SESSION_SECRET from .env, loaded just above
 
 VOCAB_PATH = Path("data/processed/domain_vocab.json")
 DETAILS_PATH = Path("data/processed/posting_details.json")
@@ -119,9 +130,48 @@ def health() -> dict:
     """{"ok", "problems": [{"code", "message", "blocking"}], "busy"}. The
     site shows each problem's one-line message before anyone uploads."""
     persist_dir = resolve_persist_dir(load_config())
-    problems = check(persist_dir)
-    return {"ok": not any(p.blocking for p in problems), "problems": as_dicts(problems), "busy": _busy.locked(),
+    problems = as_dicts(check(persist_dir))
+    if not auth.state.passwords.configured:
+        problems.append({"code": "login_not_configured", "blocking": True,
+                         "message": "Sign-in isn't set up: add DEMO_PASSWORD to .env and restart the API."})
+    return {"ok": not any(p["blocking"] for p in problems), "problems": problems, "busy": _busy.locked(),
             "postings": indexed_postings(persist_dir)}
+
+
+# --- Sign-in -------------------------------------------------------------------
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginBody, response: Response) -> dict:
+    user, token = auth.login(body.email, body.password)
+    response.set_cookie(auth.COOKIE_NAME, token, max_age=auth.SESSION_SECONDS, httponly=True, samesite="lax",
+                        secure=os.environ.get("COOKIE_SECURE") == "1", path="/")
+    return {"user": user.public()}
+
+
+@app.post("/api/auth/logout")
+def logout(response: Response) -> dict:
+    response.delete_cookie(auth.COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def me(user: auth.User = Depends(auth.current_user)) -> dict:
+    return {"user": user.public()}
+
+
+@app.get("/api/admin/overview")
+def admin_overview(_user: auth.User = Depends(auth.require_role("admin"))) -> dict:
+    return {
+        "accounts": [u.public() for u in auth.DEMO_USERS.values()],
+        "recent_sign_ins": list(auth.state.recent),
+        "postings": indexed_postings(resolve_persist_dir(load_config())),
+        "busy": _busy.locked(),
+    }
 
 
 def _read_upload(file: UploadFile) -> tuple[str, bytes]:
@@ -170,8 +220,12 @@ def role_report_to_json(profile: role_profile.RoleProfile, display_role: str) ->
     }
 
 
+ALL_ROLES = auth.require_role(*auth.ROLES)
+RESUME_CHECK_ROLES = auth.require_role("seeker", "advisor", "admin")
+
+
 @app.get("/api/roles")
-def roles(q: str = "") -> dict:
+def roles(q: str = "", _user: auth.User = Depends(ALL_ROLES)) -> dict:
     try:
         _store, titles, _bg = _role_data()
     except IndexNotBuiltError:
@@ -180,7 +234,8 @@ def roles(q: str = "") -> dict:
 
 
 @app.post("/api/role-report")
-def role_report(role: str = Form(...), file: UploadFile | None = File(None), allow_unusual: bool = Form(False)) -> dict:
+def role_report(role: str = Form(...), file: UploadFile | None = File(None), allow_unusual: bool = Form(False),
+                _user: auth.User = Depends(ALL_ROLES)) -> dict:
     display_role = " ".join(role.split())[:80]
     if len(role_profile.normalize_role(display_role)) < 2:
         raise _error(400, "no_role", "Enter a job title, for example Data Engineer.")
@@ -206,7 +261,8 @@ def role_report(role: str = Form(...), file: UploadFile | None = File(None), all
 
 
 @app.post("/api/analyze")
-def analyze(file: UploadFile = File(...), correction: bool = Form(True), allow_unusual: bool = Form(False)) -> dict:
+def analyze(file: UploadFile = File(...), correction: bool = Form(True), allow_unusual: bool = Form(False),
+            _user: auth.User = Depends(RESUME_CHECK_ROLES)) -> dict:
     suffix, data = _read_upload(file)
     if not _busy.acquire(blocking=False):
         raise _error(429, "busy", "Another resume is being checked right now. Try again in a minute.")

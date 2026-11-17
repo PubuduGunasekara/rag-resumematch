@@ -47,8 +47,18 @@ def test_api_health_reports_ok_only_without_blocking_problems(monkeypatch):
     from fastapi.testclient import TestClient
 
     from resumematch.api import app as api
+    from resumematch.api import auth
+    monkeypatch.setenv("DEMO_PASSWORD", "x")
+    auth.state.reset()
     monkeypatch.setattr(api, "check", lambda *_a, **_k: [health.Problem("no_vocab", "Typo correction is off.", False)])
     body = TestClient(api.app).get("/api/health").json()
     assert body["ok"] is True and body["problems"][0]["code"] == "no_vocab"
     monkeypatch.setattr(api, "check", lambda *_a, **_k: [health.Problem("model_down", "Ollama isn't running.", True)])
     assert TestClient(api.app).get("/api/health").json()["ok"] is False
+    # Without a demo password nobody can sign in, so that blocks too.
+    monkeypatch.setattr(api, "check", lambda *_a, **_k: [])
+    monkeypatch.delenv("DEMO_PASSWORD")
+    auth.state.reset()
+    body = TestClient(api.app).get("/api/health").json()
+    assert body["ok"] is False and body["problems"][0]["code"] == "login_not_configured"
+    auth.state.reset()

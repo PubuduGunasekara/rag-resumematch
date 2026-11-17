@@ -35,6 +35,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 25 | 2026-11-10 | Deployment | [The quick start on a fresh clone](#fresh-clone) | Adopted |
 | 26 | 2026-11-12 | Query correction | [Names and real words were "corrected" on clean resumes](#false-corrections) | Adopted |
 | 27 | 2026-11-16 | Feature | [A report for a job title, not just the 5 closest postings](#role-report) | Adopted |
+| 28 | 2026-11-16 | Feature | [Sign-in and roles](#sign-in) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -809,6 +810,50 @@ title with few postings ("High School Teacher": 6) gets a message to try a broad
 **Decision.** Adopted as the first of the new features. It is on the Next.js site only so far.
 
 **Evidence.** `tests/test_role_profile.py`, `tests/test_api.py`
+
+---
+
+<a id="sign-in"></a>
+## 28. Sign-in and roles
+
+**Feature, 2026-11-16. Outcome: adopted.**
+
+**Problem.** The planned features serve different people: a job seeker checks their own resume, a
+recruiter ranks candidates, an advisor looks across students, an admin runs the system. Without
+accounts the site can't tell them apart, and later features that keep data need to know whose it is.
+
+**Hypothesis.** Fixed demo accounts, one per role, are enough for a demo, provided the API (not the
+site) enforces each role on every request and the password and sessions are handled like a real
+system's.
+
+**Method.** `api/auth.py`, standard library only. Four accounts on example.com share a password from
+`DEMO_PASSWORD`, hashed with scrypt and a per-account salt when the API starts. Sign-in returns an
+HMAC-SHA256-signed token (email, role, expiry) in an HttpOnly, SameSite=Lax cookie; an unknown email
+takes the same hashing time as a wrong password and gets the same message. Five failed attempts in
+five minutes block an email until the window passes. Each endpoint declares its roles with
+`require_role`. On the site, middleware sends signed-out visitors to `/login`, a session context
+shows the pages a role can open, and a gate shows a plain message on a page the role can't use.
+Tested with unit tests through the real API and by signing in as each account in the browser.
+
+**Results.**
+
+| Check | Result |
+|---|---|
+| Signed out: `/api/auth/me`, `/api/roles`, `/api/analyze`, `/api/role-report` | 401 for all |
+| Recruiter: `/api/analyze`, `/api/admin/overview` | 403, with the role named in the message |
+| Recruiter: `/api/roles` | 200 |
+| Recruiter opens the resume page | "This page isn't available to the Recruiter role" and a link to their start page |
+| Admin | All three pages; overview lists 4 accounts and the recent sign-ins |
+| Cookie visible to page scripts (`document.cookie`) | No |
+| Tampered token (role changed to admin), wrong secret, expired token | Rejected |
+| 5 failed attempts, then the right password | 429 |
+| No `DEMO_PASSWORD` set | Sign-in refused with the fix in the message; `/api/health` reports it as blocking |
+
+**Decision.** Adopted. Limits, on purpose for a demo: accounts are fixed in code, recent sign-ins
+live in memory, and the Docker images still run only Streamlit, which has no sign-in. Accounts in a
+database come with the features that store data.
+
+**Evidence.** `tests/test_auth.py`, `tests/test_api.py`, `tests/test_health.py`
 
 ---
 

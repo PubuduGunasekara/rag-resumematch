@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { RoleReport } from "@/lib/types";
+import { handleSignedOut } from "@/lib/session";
 
 type Suggestion = { title: string; postings: number };
 
@@ -53,6 +54,7 @@ export default function RolePage() {
     if (file) body.append("file", file);
     try {
       const res = await fetch("/api/role-report", { method: "POST", body });
+      if (handleSignedOut(res)) return;
       if (!res.ok) { setError(await readError(res)); setReport(null); return; }
       setReport(await res.json());
       setSuggestions([]);

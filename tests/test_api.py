@@ -4,12 +4,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 from resumematch.api import app as api
+from resumematch.api import auth
 from resumematch.generation.gap_analysis import CitedClaim, GapAnalysisResult
 from resumematch.generation.job_report import JobAnalysis, JobReport, LearnItem, Requirement
 from resumematch.pipeline import PipelineResult
 from resumematch.preprocess.resume_sections import ResumeSection
 
 RESUME = "Maria Delgado, RN\nACLS, BLS, PALS"
+
+
+@pytest.fixture(autouse=True)
+def signed_in():
+    """These tests are about the endpoints, not sign-in (tests/test_auth.py):
+    every request runs as the demo job seeker."""
+    user = auth.DEMO_USERS["seeker@example.com"]
+    api.app.dependency_overrides[api.ALL_ROLES] = lambda: user
+    api.app.dependency_overrides[api.RESUME_CHECK_ROLES] = lambda: user
+    yield
+    api.app.dependency_overrides.clear()
 
 
 def fake_result() -> PipelineResult:

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReportView from "@/components/Report";
+import RoleGate from "@/components/RoleGate";
+import { handleSignedOut } from "@/lib/session";
 import type { Report } from "@/lib/types";
 
 type State =
@@ -27,7 +29,7 @@ const ACCEPT = [".pdf", ".docx"];
 
 type Problem = { code: string; message: string; blocking: boolean };
 
-export default function Home() {
+function ResumeCheck() {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [correction, setCorrection] = useState(true);
   const [over, setOver] = useState(false);
@@ -65,6 +67,7 @@ export default function Home() {
     body.append("allow_unusual", String(allowUnusual));
     try {
       const res = await fetch("/api/analyze", { method: "POST", body });
+      if (handleSignedOut(res)) return;
       if (!res.ok) {
         const { message, soft } = await readError(res);
         setState({ kind: "error", message, soft, file });
@@ -142,4 +145,8 @@ export default function Home() {
       {state.kind === "done" && <ReportView report={state.report} fileName={state.name} />}
     </>
   );
+}
+
+export default function Home() {
+  return <RoleGate href="/"><ResumeCheck /></RoleGate>;
 }

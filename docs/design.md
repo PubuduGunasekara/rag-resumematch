@@ -100,6 +100,14 @@ allowed), extracts 1- to 4-word terms from their requirement sentences, and keep
 sample. Posting titles and background counts are cached in `data/processed/` the first time; delete
 both files after rebuilding the index.
 
+The Next.js site requires sign-in (`api/auth.py`). Four fixed demo accounts, one per role (job
+seeker, recruiter, career advisor, admin), share a password from `DEMO_PASSWORD`, kept only as a
+salted scrypt hash. Sessions are an HMAC-signed token (`SESSION_SECRET`) in an HttpOnly,
+SameSite=Lax cookie, valid 8 hours; `COOKIE_SECURE=1` adds Secure for HTTPS. Every endpoint except
+`/api/health` names the roles it allows, and the API enforces them; the site's middleware only
+redirects signed-out visitors to `/login`, and the header hides pages a role can't open. The
+Docker images still run Streamlit only, which has no sign-in.
+
 ## Deployment
 
 - **Laptop:** the app runs natively or in Docker; Ollama runs natively to use the Metal GPU.
@@ -117,7 +125,8 @@ both files after rebuilding the index.
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
-| Unit tests | 249 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Unit tests | 258 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Role checks | Recruiter gets 403 from `/api/analyze` and `/api/admin/overview`, 200 from `/api/roles`; signed out gets 401; the session cookie is not readable by page scripts | Chrome (in-app browser), local | All four demo accounts | 2026-11-16 | Log, [sign-in](engineering-log.md#sign-in) |
 | Role report time | 0.6 s (331 postings) to 2.1 s (1,000 postings); 2.1 to 2.2 s through the API | M3 Pro | Data Engineer, Registered Nurse, Accountant, Software Engineer | 2026-11-16 | Log, [role-report](engineering-log.md#role-report) |
 | Parsing and sections on synthetic resumes | All 36 fixture files (17 resumes, PDF and Word) parse into 3 or more sections; DOCX tables and a two-column PDF handled | M3 Pro | 17 resumes | 2026-11-09 | `tests/test_resume_fixtures.py`, log entries 21 and 22 |
 | The pipeline enforces its checks on real output | 0 of 91 shown claims failed a check; 26 of 184 proposed claims dropped as not in any retrieved posting. The audit reuses the app's own checking functions, so this shows the rules are applied, not that the output is correct | M3 Pro | 4 resumes, 2 runs each | 2026-11-09 | Log, [grounding-audit](engineering-log.md#grounding-audit) |
@@ -165,7 +174,7 @@ both files after rebuilding the index.
 | End-to-end time per resume, Docker on CPU | 57.0 s median (35.5 to 72.3 s), 3 resumes, 6 runs | Log, [benchmark](engineering-log.md#benchmark) |
 | Share of time spent on generation, native | about 96% | Log, [benchmark](engineering-log.md#benchmark) |
 | Search and fusion per resume, native | 0.08 to 0.23 s (median per resume) | Log, [benchmark](engineering-log.md#benchmark) |
-| Unit tests | 249 passing | `pytest -q`, 2026-11-16 |
+| Unit tests | 258 passing | `pytest -q`, 2026-11-16 |
 | Role report caches | Titles 12.3 s, background terms 6.7 s, built once | Log, [role-report](engineering-log.md#role-report), 2026-11-16 |
 
 ## Open issues

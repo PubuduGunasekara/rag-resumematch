@@ -172,3 +172,20 @@ details.how ul, details.how ol { margin: 10px 0 0; padding-left: 20px; color: va
   .term-row { grid-template-columns: minmax(0, 1fr) 90px; }
   .term-row .status-cell { grid-column: 1 / -1; }
 }
+
+/* Signed-in user in the header */
+.site-nav { flex-wrap: wrap; align-items: baseline; justify-content: flex-end; }
+.site-nav .who { color: var(--graphite); font-size: 13px; border-left: 1px solid var(--hairline-strong); padding-left: 14px; }
+.link-button {
+  font: inherit; font-size: 14px; background: none; border: none; padding: 0; color: var(--graphite);
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--hairline-strong);
+}
+.link-button:hover { color: var(--ink); }
+.role-form input[type="password"] {
+  font: inherit; font-size: 16px; padding: 10px 12px; border: 1px solid var(--hairline-strong);
+  background: #fff; color: var(--ink); border-radius: 2px; max-width: 420px;
+}
+@media (max-width: 600px) {
+  .site-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .site-nav { justify-content: flex-start; gap: 6px 14px; }
+}

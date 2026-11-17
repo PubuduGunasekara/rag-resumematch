@@ -125,3 +125,25 @@ def test_endpoint_recruiter_never_reaches_the_resume_path(as_role, monkeypatch):
     monkeypatch.setattr(api, "chat", lambda *a: (_ for _ in ()).throw(AssertionError("not for recruiters")))
     body = as_role("recruiter").post("/api/assistant", json={"message": "tell me something about the market"}).json()
     assert body["kind"] == "help" and body["actions"][0]["href"] == "/recruit"
+
+
+# --- Before sign-in ------------------------------------------------------------
+
+def test_guest_replies_explain_and_ask_to_sign_in():
+    from resumematch.chat.assistant import guest_reply
+    r = guest_reply("hello", password_public=True)
+    assert "checks your resume against real LinkedIn job postings" in r.text[0] and "Sign in to access" in r.text[-1]
+    assert '"Fill in"' in guest_reply("How do I sign in?", password_public=True).text[0]
+    assert '"Fill in"' not in guest_reply("How do I sign in?", password_public=False).text[0]
+    assert "deleted" in guest_reply("What happens to my resume?", True).text[0]
+    other = guest_reply("Draft a cover letter for me", True)
+    assert other.kind == "need" and other.text[0].startswith("Sign in to access that")
+
+
+def test_guest_endpoint_is_public_and_never_touches_the_pipeline(monkeypatch):
+    api.app.dependency_overrides.clear()
+    monkeypatch.setattr(api, "chat", lambda *a: (_ for _ in ()).throw(AssertionError("no model before sign-in")))
+    c = TestClient(api.app)
+    body = c.post("/api/assistant/guest", json={"message": "What can ResumeMatch do?"}).json()
+    assert body["kind"] == "help" and body["suggestions"] and body["actions"] == []
+    assert c.post("/api/assistant", json={"message": "hi"}).status_code == 401   # the full assistant still needs sign-in

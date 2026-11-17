@@ -173,3 +173,33 @@ def route(question: str, role: str, has_resume: bool, jobs: list[dict]) -> Reply
                      [{"type": "upload", "label": "Upload your resume"}],
                      ["What do data engineer postings ask for?", "What can you do?"])
     return None
+
+
+# --- Before sign-in ----------------------------------------------------------------
+
+_SIGN_IN = re.compile(r"\b(sign.?in|log.?in|login|password|account|demo|credentials?|register|sign.?up)\b", re.IGNORECASE)
+GUEST_SUGGESTIONS = ["What can ResumeMatch do?", "How do I sign in?", "What happens to my resume?"]
+
+
+def guest_reply(message: str, password_public: bool) -> Reply:
+    """The assistant on the login page: what the system is and how to get in.
+    Nothing here needs a session, and nothing reaches the model."""
+    q = " ".join(message.split())
+    how_to = ("This is a demo with one account per role: job seeker, recruiter, career advisor and admin. "
+              + ("Press \"Fill in\" next to a role on this page, then Sign in."
+                 if password_public else "All four share the demo password set on this server."))
+    if _SIGN_IN.search(q):
+        return Reply("help", [how_to], suggestions=["What can ResumeMatch do?", "What happens to my resume?"])
+    if re.search(r"\b(privacy|private|stored?|saved?|happens to my resume|deleted?|who sees)\b", q, re.IGNORECASE):
+        return Reply("help", [PRIVACY, "Sign in to try it."], suggestions=["How do I sign in?"])
+    if _GREETING.match(q) or _HELP.search(q) or re.search(r"\b(what is|resumematch|about)\b", q, re.IGNORECASE):
+        return Reply("help", [
+            "Hi. ResumeMatch checks your resume against real LinkedIn job postings and shows which requirements of the "
+            "closest ones your resume meets, with the line of your resume that shows each.",
+            "Signed in, you can also get suggested resume edits, a cover letter draft and interview prep for any posting, "
+            "see what postings for a job title ask for, and ask me questions about your results. Recruiters can rank "
+            "candidates for a job with blind review.",
+            "Sign in to access these. " + how_to,
+        ], suggestions=["How do I sign in?", "What happens to my resume?"])
+    return Reply("need", ["Sign in to access that. Once you're in, I can answer questions about your resume and the postings, "
+                          "and start any feature for you. " + how_to], suggestions=GUEST_SUGGESTIONS)

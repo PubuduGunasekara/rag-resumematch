@@ -24,6 +24,7 @@ Endpoints:
                            report, answered from the resume and its postings with sources
     POST /api/assistant    JSON {"message", "resume_text"?, "jobs"?, "history"}: the assistant that
                            works from sign-in; routes to help, a role report, an action or /api/chat
+    POST /api/assistant/guest  JSON {"message"}: the assistant before sign-in (public; no model)
     GET  /api/filter-options  choices and counts for the search filters
     GET  /api/roles        ?q= title suggestions for the role report
     POST /api/role-report  form "role", optional multipart "file": what postings with
@@ -673,6 +674,19 @@ def _role_summary(title: str, resume_text: str) -> dict:
     headline, summary = role_profile.summarize(profile, display)
     return {"title": display, "headline": headline, "summary": summary, "analyzed": profile.analyzed,
             "terms": [{"term": t.term, "share": t.share, "shown": t.shown} for t in profile.terms[:10]]}
+
+
+class GuestBody(BaseModel):
+    message: str
+
+
+@app.post("/api/assistant/guest")
+def assistant_guest(body: GuestBody) -> dict:
+    """Public: what ResumeMatch is and how to sign in. Answers are written in
+    chat/assistant.py; no model, no index, no user data."""
+    message = " ".join(body.message.split())[:ask.MAX_QUESTION_CHARS] or "hello"
+    reply = assistant_router.guest_reply(message, auth.state.public_password is not None)
+    return {"kind": reply.kind, "text": reply.text, "actions": [], "suggestions": reply.suggestions}
 
 
 @app.post("/api/assistant")

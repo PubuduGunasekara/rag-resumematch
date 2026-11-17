@@ -44,6 +44,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 34 | 2026-11-16 | Feature | [Asking questions about the report](#ask-report) | Adopted |
 | 35 | 2026-11-16 | Deployment | [The API and the site in Docker](#docker-site) | Adopted |
 | 36 | 2026-11-16 | Interface | [The site as a workspace, with an assistant from sign-in](#workspace-redesign) | Adopted |
+| 37 | 2026-11-17 | Interface | [The assistant as a floating chat, before and after sign-in](#floating-assistant) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -1274,6 +1275,42 @@ previous design.
 **Decision.** Adopted.
 
 **Evidence.** `tests/test_assistant.py`, `tests/test_api.py`
+
+---
+
+<a id="floating-assistant"></a>
+## 37. The assistant as a floating chat, before and after sign-in
+
+**Interface, 2026-11-17. Outcome: adopted.**
+
+**Problem.** The assistant was a column docked on the right of every page. It took 380 px from every
+page, didn't exist on the login page, and didn't look like the chat people know from other sites.
+
+**Hypothesis.** A floating chat button with a panel, opening by itself once after sign-in and
+available on the login page with sign-in help, is more familiar and gives pages their full width.
+
+**Method.** `components/Assistant.tsx` became a launcher (bottom right) and a floating panel, with an
+unread dot, Escape to close and focus on the input when it opens. Signed in, it opens 3 s after the
+first page of the tab. On the login page it runs in guest mode: a new public endpoint,
+`/api/assistant/guest`, answers from `chat/assistant.guest_reply` (what ResumeMatch does, how to sign
+in with the demo accounts, the privacy answer, and "Sign in to access that" for anything else),
+without a session, the index or the model. Tested in the browser at 1440 px and 375 px.
+
+**Results.**
+
+| Check | Result |
+|---|---|
+| Login page, first version (panel opens after 4 s on desktop) | The panel covered the right of the sign-in form, including the "Fill in" buttons |
+| Login page, final (teaser after 3 s) | Teaser bubble and unread dot; the form stays clear |
+| Guest: "Draft a cover letter for me" | "Sign in to access that...", with the demo account instructions |
+| Guest endpoint vs the full one | Guest answers without a session; `/api/assistant` still returns 401 signed out |
+| Sign in as the job seeker | Panel closed at 2 s, open by 5 s with the job seeker welcome |
+| Escape, and focus | Escape closes the panel; the input is focused when it opens |
+| 375 px | Panel opens as a bottom sheet, the launcher hides while it is open, no sideways scroll |
+
+**Decision.** Adopted: teaser before sign-in, automatic open after it.
+
+**Evidence.** `tests/test_assistant.py`
 
 ---
 

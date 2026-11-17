@@ -26,7 +26,7 @@ single resume, then checks every claim it shows against the resume and the posti
 | | A revised resume checked against the same postings, to see what the edit changed | Compare versions |
 | | Search filters: remote, state, work type, level, minimum salary | Start |
 | Everyone | What postings for a job title ask for, across all of them, and which of those terms a resume uses | Explore a role |
-| | An assistant, open from sign-in, that explains the system, takes a resume, answers questions with sources and starts work on request | Beside every page |
+| | An assistant that explains the system, takes a resume, answers questions with sources and starts work on request | The chat button, bottom right of every page |
 | Recruiters | Up to 10 resumes ranked against a job description, with blind review | Rank candidates |
 | Admins | Everything above, plus accounts and recent sign-ins | Admin |
 
@@ -44,7 +44,7 @@ single resume, then checks every claim it shows against the resume and the posti
 | Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.88 to 0.98 with | 4 resumes, 5 seeds each |
 | Typo correction, false corrections on clean resumes | 6 words in 35 files (45 before the name and word-form rules) | The synthetic resumes in `eval/resumes/` and one test resume |
 | Chunks containing legal boilerplate | 26.9% before cleanup, 2.9% after | Full index |
-| Tests | 353 passing, ruff clean | No model, index or network needed |
+| Tests | 355 passing, ruff clean | No model, index or network needed |
 
 Every number above has a source in [docs/design.md](docs/design.md#numbers-and-their-sources).
 
@@ -93,8 +93,8 @@ the reasoning for each are in [docs/design.md](docs/design.md).
 
 ## The site
 
-The Next.js site is a workspace with a sidebar, the page in the middle and the assistant on the
-right. A FastAPI service runs the pipeline behind it. All wording and highlight positions come from
+The Next.js site is a workspace: a sidebar, the page, and a chat button in the bottom-right corner
+that opens the assistant. A FastAPI service runs the pipeline behind it. All wording and highlight positions come from
 the Python code. Streamlit is kept as a quick local tool with the same report and no sign-in.
 
 | Page | What it holds |
@@ -108,8 +108,11 @@ the Python code. Streamlit is kept as a quick local tool with the same report an
 | Rank candidates | Recruiter mode |
 | Admin | Accounts, recent sign-ins and index size |
 
-**The assistant** is open beside every page after sign-in. Routing is code (`chat/assistant.py`),
-so it can only offer features that exist:
+**The assistant** is a floating chat, like a support widget. Before sign-in, a teaser bubble appears
+next to the button after 3 seconds; the assistant explains what ResumeMatch does and how to sign in
+with the demo accounts, and anything else gets "Sign in to access that". After sign-in it opens by
+itself after 3 seconds, once per tab, and shows a dot when it has replied while closed. Routing is
+code (`chat/assistant.py`), so it can only offer features that exist:
 
 - "What can you do?" or a greeting: what the system does for this role, and the next step.
 - "What do data engineer postings ask for?": the role report's top terms, before any resume.
@@ -120,7 +123,8 @@ so it can only offer features that exist:
 
 The report, tailoring results and conversation stay in the browser tab, survive a reload, and are
 cleared on sign-out. On a phone the sidebar becomes a menu and the assistant a bottom sheet.
-([workspace-redesign](docs/engineering-log.md#workspace-redesign))
+([workspace-redesign](docs/engineering-log.md#workspace-redesign),
+[floating-assistant](docs/engineering-log.md#floating-assistant))
 
 ### Screens
 
@@ -129,13 +133,13 @@ Captured from the running site with the full index, signed in as the demo job se
 | | |
 |---|---|
 | ![Start before a resume: what to expect, the upload and the assistant's welcome](docs/images/ui-start.png) | ![Matches: every posting with its fit ring and checklist](docs/images/ui-matches.png) |
-| **Start**, before a resume: what to expect, the upload, and the assistant's welcome | **Matches**: every posting with its fit ring and full checklist |
+| **Start**, before a resume: what to expect, the upload, and the assistant, opened 3 s after sign-in | **Matches**: every posting with its fit ring and full checklist; the chat button bottom right |
 | ![Resume evidence: a requirement selected and its line highlighted in the resume](docs/images/ui-resume-evidence.png) | ![Tailor: a cover letter the assistant drafted and opened](docs/images/ui-tailor-letter.png) |
 | **Resume evidence**: Kafka selected, and the line that shows it highlighted | **Tailor**: a cover letter drafted on request in the assistant, with the failed sentences listed |
 | ![The assistant answering a salary question from the report's data](docs/images/ui-assistant.png) | ![Recruiter mode: candidates ranked with blind review](docs/images/ui-recruiter.png) |
 | **Assistant**: a salary question answered from the postings' data | **Rank candidates**: blind review, with the school and year removed from the evidence |
 | ![The sign-in page with the demo accounts](docs/images/ui-login.png) | ![The overview at phone width](docs/images/ui-mobile.png) |
-| **Sign in**: one-click demo accounts | **Phone width**: the same overview, with the menu and assistant behind buttons |
+| **Sign in**: one-click demo accounts, and the assistant's teaser before sign-in | **Phone width**: the same overview, with the menu and assistant behind buttons |
 
 ## The features in detail
 
@@ -278,7 +282,7 @@ index, Ollama not running, model not pulled), the site says so with the command 
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 353 unit tests |
+| `make test` | Run the 355 unit tests |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |
@@ -289,7 +293,7 @@ index, Ollama not running, model not pulled), the site says so with the command 
 
 ## Testing
 
-`make test` runs 353 tests in about 4 seconds with no model, index or network: the model, the
+`make test` runs 355 tests in about 4 seconds with no model, index or network: the model, the
 vector store and the embedder are replaced by small fakes. Every bug in the engineering log has a
 regression test.
 
@@ -297,7 +301,7 @@ regression test.
 |---|---|---|
 | Resume input | 83 | PDF and Word parsing, tables and two-column layouts, the 20 synthetic resumes, validation, section splitting, contact redaction |
 | Model output and claim checks | 69 | Parsing the JSON answer, every grounding check, tiers, the report, text cleanup, the pipeline |
-| Features | 77 | Role report, tailoring checks, interview prep, version compare, recruiter ranking and blind review, the chat checks, assistant routing |
+| Features | 79 | Role report, tailoring checks, interview prep, version compare, recruiter ranking and blind review, the chat checks, assistant routing before and after sign-in |
 | API, sign-in and health | 49 | Every endpoint, roles (401 and 403), sessions, tampered and expired tokens, failed-attempt limits, startup checks |
 | Index building | 28 | Chunking, boilerplate removal, the sample-index download and checksum |
 | Typo correction | 26 | Guard rails for names, acronyms and real words, and the false corrections measured on real resumes |
@@ -390,7 +394,7 @@ web/
   lib/           session (sign-in, roles), workspace (the report shared by every page)
 scripts/         build_index.py, fetch_sample_index.py, make_sample_index.py, eval_*.py,
                  benchmark.py, audit_grounding.py
-tests/           353 unit tests
+tests/           355 unit tests
 eval/resumes/    20 synthetic test resumes (fictional people), see MANIFEST.md
 docs/            design.md, engineering-log.md, diagrams/, images/
 gcp/             start.sh, stop.sh for the GPU VM
@@ -401,7 +405,7 @@ gcp/             start.sh, stop.sh for the GPU VM
 - **5 minutes:** this README.
 - **30 minutes:** [docs/design.md](docs/design.md), for the architecture, every decision with its
   measured reason, what has and hasn't been verified, and where each number comes from.
-- **Deep dive:** [docs/engineering-log.md](docs/engineering-log.md), the dated record of 36
+- **Deep dive:** [docs/engineering-log.md](docs/engineering-log.md), the dated record of 37
   experiments and fixes, and [tests/](tests/).
 
 ## Dataset and license

@@ -23,7 +23,7 @@ Built with Claude Code assistance; the design, experiments and measurements are 
 | End-to-end time per resume | 13.8 s median (11.4 to 19.4 s) | M3 Pro laptop, Ollama on the Metal GPU, 3 resumes, 9 runs |
 | End-to-end, everything in Docker on CPU | 57 s median (35.5 to 72.3 s) | Docker Desktop on the same Mac (11 CPUs, 8 GB), 3 resumes, 6 runs |
 | Where the time goes | About 96% is the model writing its answer; search and fusion take 0.08 to 0.23 s | Same native runs, `scripts/benchmark.py` |
-| Tests | 273 passing | No model, index or network needed |
+| Tests | 293 passing | No model, index or network needed |
 | Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.88 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
 | Typo correction, false corrections on clean resumes | 6 words in 35 files (45 before the name and word-form rules) | 35 files: the synthetic resumes in `eval/resumes/` and one test resume |
 | Vector search recall against exact search | 0.972 mean recall@30 (0.791 before tuning) | 17 resumes, 91 sections |
@@ -104,6 +104,19 @@ postings that don't state one, and the report says so. The filters are applied i
 not to its results: with 2,500 or fewer passing postings ChromaDB searches only those, and above
 that the search fetches 20 times more chunks and drops the rest, which took 0.1 to 1.0 s.
 ([search-filters](docs/engineering-log.md#search-filters))
+
+### Tailoring for one posting
+
+Under each posting's checklist, "Suggest resume edits" rewrites the resume bullets closest to that
+posting, and "Draft a cover letter" writes a short letter. The model writes; code decides what is
+shown. A rewrite is rejected if it adds a number, a tool or product the bullet doesn't name, or a
+word the resume doesn't use (apart from filler words, verb forms and a few generic nouns). A letter
+sentence is rejected if it states a number from neither the resume nor the posting, or claims a
+tool or name the resume doesn't have; sentences that rest on the resume are underlined, with the
+resume line on hover. Every rejection is listed with its reason. In one run on three resumes, 3, 5
+and 4 of 6 rewrites passed; rejected ones added "Cosmos DB" (asked for by the posting, not on the
+resume) and "cardiac" (an ICU nurse applying to a cardiac ICU).
+([tailoring](docs/engineering-log.md#tailoring))
 
 ## What went wrong first
 
@@ -194,7 +207,7 @@ The same steps are available as `make` targets:
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 273 unit tests (no model or index needed) |
+| `make test` | Run the 293 unit tests (no model or index needed) |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |
@@ -269,7 +282,7 @@ src/resumematch/
   ingest/        parse_resume.py, validate.py, job_postings_loader.py
   preprocess/    chunker.py, boilerplate.py, resume_sections.py, query_correction.py
   retrieval/     embedder.py, vector_store.py, fusion.py, filters.py
-  generation/    ollama_client.py, gap_analysis.py, job_report.py, text_clean.py
+  generation/    ollama_client.py, gap_analysis.py, job_report.py, text_clean.py, tailor.py
   market/        role_profile.py (role report: terms across all postings with one title)
   frontend/      streamlit_app.py, render.py
   api/           app.py (FastAPI for the Next.js site), auth.py (sign-in and roles)

@@ -204,3 +204,14 @@ details.how ul, details.how ol { margin: 10px 0 0; padding-left: 20px; color: va
   background: #fff; color: var(--ink); border-radius: 2px; max-width: 260px;
 }
 .filter-note { font-size: 14px; margin: 8px 0 0; padding: 8px 12px; background: var(--paper-deep); border-left: 2px solid var(--ink); }
+
+/* Tailoring: bullet rewrites and cover letter */
+.tailor { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--hairline-strong); }
+.tailor .row { display: flex; gap: 10px; flex-wrap: wrap; }
+.tailor-out { margin-top: 12px; }
+.rewrite { padding: 10px 0; border-top: 1px solid var(--hairline); }
+.rewrite p { margin: 0 0 4px; }
+.letter { background: #fff; border: 1px solid var(--hairline); padding: 16px 18px; font-family: var(--font-serif), Georgia, serif; font-size: 15.5px; }
+.letter p { margin: 0 0 12px; }
+.letter p:last-child { margin-bottom: 0; }
+.letter .cited { text-decoration: underline; text-decoration-color: var(--moss); text-underline-offset: 3px; }

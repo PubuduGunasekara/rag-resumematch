@@ -12,6 +12,8 @@ Endpoints:
     GET  /api/admin/overview  accounts, recent sign-ins, index size (admin only)
     POST /api/analyze      multipart "file" (.pdf/.docx), form "correction" (bool),
                            form "allow_unusual" (bool: "Check it anyway" after a soft warning)
+    POST /api/tailor       JSON {"kind": "bullets"|"letter", "job_id", "resume_text", "evidence"}:
+                           resume bullet rewrites or a cover letter for one posting, checked in code
     GET  /api/filter-options  choices and counts for the search filters
     GET  /api/roles        ?q= title suggestions for the role report
     POST /api/role-report  form "role", optional multipart "file": what postings with
@@ -49,6 +51,9 @@ from pydantic import BaseModel
 
 from resumematch.api import auth
 from resumematch.frontend.render import highlight_spans
+from resumematch.generation import tailor
+from resumematch.generation.job_report import requirement_excerpt
+from resumematch.generation.ollama_client import OllamaClient
 from resumematch.health import as_dicts, check
 from resumematch.market import role_profile
 from resumematch.pipeline import (
@@ -315,6 +320,81 @@ def role_report(role: str = Form(...), file: UploadFile | None = File(None), all
     except Exception as err:  # noqa: BLE001 - same rule as /api/analyze: no stack traces, no resume text in logs
         log.error("role report failed: %s\n%s", type(err).__name__, "".join(traceback.format_tb(err.__traceback__)))
         raise _error(500, "internal", "Something went wrong while building this report. Try again.") from None
+
+
+class EvidenceItem(BaseModel):
+    requirement: str = ""
+    resume_quote: str
+
+
+class TailorBody(BaseModel):
+    kind: str
+    job_id: str
+    resume_text: str
+    evidence: list[EvidenceItem] = []
+
+
+MAX_RESUME_CHARS = 30_000
+
+
+def tailor_to_json(result: tailor.TailorResult) -> dict:
+    """What the report shows for a rewrite or letter request. Wording is decided here."""
+    if result.kind == "bullets":
+        shown = [r for r in result.rewrites if r.issue is None]
+        rejected = [r for r in result.rewrites if r.issue is not None]
+        return {
+            "kind": "bullets",
+            "message": None if result.rewrites else "No experience bullets were found on this resume to rewrite.",
+            "shown": [{"original": r.original, "text": r.text, "requirement": r.requirement} for r in shown],
+            "rejected": [{"original": r.original, "text": r.text, "issue": r.issue} for r in rejected],
+        }
+    paragraphs, left_out = tailor.arrange_letter(result.sentences)
+    def cited(s: tailor.LetterSentence) -> dict:
+        e = result.evidence[s.evidence - 1] if s.evidence else None
+        return {"text": s.text, "resume_quote": e.resume_quote if e else None, "requirement": (e.requirement or None) if e else None}
+    return {
+        "kind": "letter",
+        "message": None if result.evidence else "Nothing on this resume could be connected to this posting, so there is nothing grounded to write about.",
+        "paragraphs": [[cited(s) for s in para] for para in paragraphs],
+        "rejected": [{"text": s.text, "issue": s.issue} for s in result.sentences if s.issue],
+        "left_out": left_out,
+    }
+
+
+@app.post("/api/tailor")
+def tailor_endpoint(body: TailorBody, _user: auth.User = Depends(RESUME_CHECK_ROLES)) -> dict:
+    """The resume text comes back from the report the browser already has
+    (nothing is stored on the server); evidence items are re-checked."""
+    if body.kind not in ("bullets", "letter"):
+        raise _error(400, "bad_kind", "Ask for bullets or a letter.")
+    if not body.resume_text.strip() or len(body.resume_text) > MAX_RESUME_CHARS:
+        raise _error(400, "bad_resume", "Run the resume check again, then try this.")
+    if not _busy.acquire(blocking=False):
+        raise _error(429, "busy", "Another request is running right now. Try again in a minute.")
+    try:
+        store = VectorStore(persist_dir=resolve_persist_dir(load_config()))
+        chunks = store.get_posting_chunks(body.job_id)
+        if not chunks:
+            raise _error(404, "no_posting", "That posting isn't in the index.")
+        requirement_text = "\n".join(c["text"] for c in requirement_excerpt(chunks))
+        title, company, client = chunks[0]["title"], chunks[0].get("company_name"), OllamaClient()
+        if body.kind == "bullets":
+            result = tailor.suggest_rewrites(body.resume_text, title, company, requirement_text, client)
+        else:
+            evidence = [tailor.Evidence(e.requirement, e.resume_quote) for e in body.evidence[:20]]
+            result = tailor.draft_letter(body.resume_text, title, company, requirement_text, evidence, client)
+        return tailor_to_json(result)
+    except HTTPException:
+        raise
+    except requests.ConnectionError:
+        raise _error(503, "model_down", "The local model isn't running. Start Ollama and try again.") from None
+    except ValueError:
+        raise _error(502, "bad_model_output", "The model's answer couldn't be used, even after a retry. Try again.") from None
+    except Exception as err:  # noqa: BLE001 - type and stack only, never the message (it could quote the resume)
+        log.error("tailor failed: %s\n%s", type(err).__name__, "".join(traceback.format_tb(err.__traceback__)))
+        raise _error(500, "internal", "Something went wrong. Try again.") from None
+    finally:
+        _busy.release()
 
 
 @app.post("/api/analyze")

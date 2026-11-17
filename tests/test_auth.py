@@ -50,6 +50,8 @@ def test_roles_are_enforced_by_the_api(client):
     r = client.post("/api/analyze", files={"file": ("cv.pdf", b"%PDF")})
     assert r.status_code == 403 and "Recruiter" in r.json()["detail"]["message"]
     assert client.get("/api/admin/overview").status_code == 403
+    tailor = client.post("/api/tailor", json={"kind": "letter", "job_id": "1", "resume_text": "x"})
+    assert tailor.status_code == 403
     sign_in(client, "admin@example.com")
     body = client.get("/api/admin/overview").json()
     assert {a["role"] for a in body["accounts"]} == set(auth.ROLES)

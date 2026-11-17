@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import type { Job, Report, Requirement } from "@/lib/types";
 import { FilterNote } from "@/components/Filters";
+import Tailor from "@/components/Tailor";
 
 const STATUS: Record<Requirement["status"], string> = { shown: "Shown", partly: "Partly shown", not_found: "Not found" };
 
@@ -28,7 +29,7 @@ function Score({ job }: { job: Job }) {
   );
 }
 
-function Checklist({ job }: { job: Job }) {
+function Checklist({ job, resumeText }: { job: Job; resumeText: string }) {
   const counted = job.requirements.filter((r) => !r.soft);
   const soft = job.requirements.filter((r) => r.soft).map((r) => r.text);
   return (
@@ -63,11 +64,12 @@ function Checklist({ job }: { job: Job }) {
           <span className="muted">(it may have closed)</span>
         </p>
       )}
+      <Tailor job={job} resumeText={resumeText} />
     </div>
   );
 }
 
-function JobRow({ job, open, onToggle }: { job: Job; open: boolean; onToggle: () => void }) {
+function JobRow({ job, open, onToggle, resumeText }: { job: Job; open: boolean; onToggle: () => void; resumeText: string }) {
   const id = `job-${job.job_id}`;
   return (
     <div className="job">
@@ -83,7 +85,7 @@ function JobRow({ job, open, onToggle }: { job: Job; open: boolean; onToggle: ()
           <Facts details={job.details} />
           <Score job={job} />
           <p className={`reason${job.tier === "no" ? " no" : ""}`}>{job.reason}</p>
-          <Checklist job={job} />
+          <Checklist job={job} resumeText={resumeText} />
         </div>
       )}
     </div>
@@ -134,7 +136,7 @@ export default function ReportView({ report, fileName }: { report: Report; fileN
             <Facts details={best.details} />
             <Score job={best} />
             <p className="reason">{best.reason}</p>
-            <Checklist job={best} />
+            <Checklist job={best} resumeText={report.resume_text} />
           </div>
         </div>
       )}
@@ -142,14 +144,14 @@ export default function ReportView({ report, fileName }: { report: Report; fileN
       {others.length > 0 && (
         <div className="section">
           <p className="tag">{best ? "Also worth a look" : "The closest postings"}</p>
-          {others.map((j) => <JobRow key={j.job_id} job={j} open={open === j.job_id} onToggle={() => toggle(j)} />)}
+          {others.map((j) => <JobRow key={j.job_id} job={j} open={open === j.job_id} onToggle={() => toggle(j)} resumeText={report.resume_text} />)}
         </div>
       )}
 
       {blocked.length > 0 && (
         <div className="section">
           <p className="tag">Not a match right now</p>
-          {blocked.map((j) => <JobRow key={j.job_id} job={j} open={open === j.job_id} onToggle={() => toggle(j)} />)}
+          {blocked.map((j) => <JobRow key={j.job_id} job={j} open={open === j.job_id} onToggle={() => toggle(j)} resumeText={report.resume_text} />)}
         </div>
       )}
 

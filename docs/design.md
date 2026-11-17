@@ -106,6 +106,17 @@ to search only that set when it has at most 2,500 postings (`EXACT_FILTER_LIMIT`
 fetches 20 times `per_section_k` chunks and drops postings outside the set. The role report
 intersects the set with the postings that match the title.
 
+Tailoring (`generation/tailor.py`, `/api/tailor`) generates bullet rewrites or a cover letter for
+one posting with a JSON schema, then checks each item in code. Rewrites may add only words already on
+the resume, filler words, verb forms and a few generic nouns; technical words (inner capitals,
+digits, mid-sentence capitals) must be in the bullet itself; numbers must be in the bullet; at least
+half the bullet's content words must stay. Letter sentences may use numbers from the resume or the
+posting and technical words from the resume, the job title or the company (posting names too, in
+sentences that don't talk about experience); a sentence citing evidence must mention it. The browser
+sends the resume text and the posting's verified matches back with the request, since nothing is
+stored on the server, and the matches are checked again. Code arranges the letter (opening, cited
+body, close) because the 3B model ignored paragraph numbers and repeated sentences.
+
 The Next.js site requires sign-in (`api/auth.py`). Four fixed demo accounts, one per role (job
 seeker, recruiter, career advisor, admin), share a password from `DEMO_PASSWORD`, kept only as a
 salted scrypt hash. With `DEMO_PASSWORD_PUBLIC=1` (the default) the password is public: the README
@@ -132,7 +143,8 @@ Docker images still run Streamlit only, which has no sign-in.
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
-| Unit tests | 273 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Unit tests | 293 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Bullet rewrites that passed the checks | 3, 5 and 4 of 6 (backend, nurse, accountant); 6.5 to 10.7 s each | M3 Pro, `llama3.2:3b` | One run per resume, closest posting | 2026-11-16 | Log, [tailoring](engineering-log.md#tailoring) |
 | Filtered retrieval | Every returned posting passed its filters; 0.10 to 0.98 s for the retrieval step | M3 Pro | One resume, 5 filter sets, full index; 2 full reports with the model | 2026-11-16 | Log, [search-filters](engineering-log.md#search-filters) |
 | Role checks | Recruiter gets 403 from `/api/analyze` and `/api/admin/overview`, 200 from `/api/roles`; signed out gets 401; the session cookie is not readable by page scripts | Chrome (in-app browser), local | All four demo accounts | 2026-11-16 | Log, [sign-in](engineering-log.md#sign-in) |
 | Role report time | 0.6 s (331 postings) to 2.1 s (1,000 postings); 2.1 to 2.2 s through the API | M3 Pro | Data Engineer, Registered Nurse, Accountant, Software Engineer | 2026-11-16 | Log, [role-report](engineering-log.md#role-report) |
@@ -182,7 +194,7 @@ Docker images still run Streamlit only, which has no sign-in.
 | End-to-end time per resume, Docker on CPU | 57.0 s median (35.5 to 72.3 s), 3 resumes, 6 runs | Log, [benchmark](engineering-log.md#benchmark) |
 | Share of time spent on generation, native | about 96% | Log, [benchmark](engineering-log.md#benchmark) |
 | Search and fusion per resume, native | 0.08 to 0.23 s (median per resume) | Log, [benchmark](engineering-log.md#benchmark) |
-| Unit tests | 273 passing | `pytest -q`, 2026-11-16 |
+| Unit tests | 293 passing | `pytest -q`, 2026-11-16 |
 | Postings with a level / a salary / only "United States" as location | 75% / 31% / 7% of 107,526 | `posting_details.json` joined with the index, 2026-11-16 |
 | Role report caches | Titles 12.3 s, background terms 6.7 s, built once | Log, [role-report](engineering-log.md#role-report), 2026-11-16 |
 

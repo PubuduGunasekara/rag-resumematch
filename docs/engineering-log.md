@@ -37,6 +37,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 27 | 2026-11-16 | Feature | [A report for a job title, not just the 5 closest postings](#role-report) | Adopted |
 | 28 | 2026-11-16 | Feature | [Sign-in and roles](#sign-in) | Adopted |
 | 29 | 2026-11-16 | Feature | [Search filters](#search-filters) | Adopted |
+| 30 | 2026-11-16 | Feature | [Resume bullet rewrites and a cover letter, checked in code](#tailoring) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -913,6 +914,61 @@ with MA and remote 2, both under the 15-posting minimum, and the page says to re
 runs. The report names the filters and what they leave out (no level, no salary, no state).
 
 **Evidence.** `tests/test_filters.py`, `tests/test_api.py`
+
+---
+
+<a id="tailoring"></a>
+## 30. Resume bullet rewrites and a cover letter, checked in code
+
+**Feature, 2026-11-16. Outcome: adopted.**
+
+**Problem.** After the report, the next thing a job seeker does is adapt the resume and write a cover
+letter. A language model does both readily, and the measured failure of this model is claiming
+things the resume does not support (entry 5: 35 of 48 matches unsupported before the checks).
+
+**Hypothesis.** The same split as the gap analysis works for prose: the model writes, and code
+rejects any rewrite or sentence that adds a fact. Facts that can be checked lexically are numbers,
+tools and names, and words the resume never uses.
+
+**Method.** `generation/tailor.py`. Bullets come from experience-like sections, with PDF line wraps
+joined and job or title lines skipped; the 6 sharing the most key terms with the posting are sent
+with its requirement sentences. Checks as in the module docstring. The letter gets the posting's
+verified matches plus the resume's 4 closest bullets as numbered evidence. Run on the backend Java,
+nurse and accountant resumes against each one's closest posting, and adjusted between runs:
+
+| Change | Why (what the run showed) |
+|---|---|
+| Allow verb forms and action verbs ("Migrated", "Lead") | Plain rewording was rejected |
+| Words glued to digits are part of the number ("99th", "$85M") | "th" and "M" were reported as new words |
+| Technical words must be in the bullet itself | "Kubernetes" from the skills list was added to a bullet about other work |
+| Skip title lines ("Ledger Kata (Java 17, Spring Boot)") | One became "demonstrating expertise in Java development" |
+| Claim words ("expertise", "proven") need support | That sentence passed because "expertise" was a filler word |
+| Prompt: no adjectives or impact phrases; schema: one rewrite per bullet | One run ended all 6 Java bullets with phrases like "ensuring system stability"; the nurse run returned none |
+| Letters: check numbers and technical words only; at least 4 sentences; code arranges paragraphs | Ordinary letter phrasing was rejected, two letters came back empty, and the model repeated "I am excited to apply" |
+
+**Results.** Last run, one posting per resume:
+
+| Resume | Posting | Rewrites shown | Rewrite time | Letter: shown / failed / left out | Letter time |
+|---|---|---|---|---|---|
+| Backend Java | Lead Java Developer | 3 of 6 | 10.7 s | 4 / 2 / 6 | 15.5 s |
+| Nurse | RN Cardiac Intensive Care | 5 of 6 | 6.5 s | 4 / 0 / 4 | 8.1 s |
+| Accountant | Staff Accountant | 4 of 6 | 6.5 s | 6 / 1 / 3 | 9.8 s |
+
+Rejected rewrites added "full-stack" and "Cosmos DB" (the posting asks for Cosmos DB; the resume
+doesn't have it), "cardiac" (the nurse works in a medical ICU and the posting is a cardiac ICU), and
+in an earlier run "a 21% increase", computed by the model from 71% and 92%. Failed letter sentences
+claimed "Cosmos DB" and "Snowflake" experience. In the browser, the accountant report gave a letter
+whose tools (NetSuite, QuickBooks) are both on the resume, and 4 of 6 rewrites.
+
+Limits: ordinary phrasing in letters is not checked ("I am highly skilled"); a rewrite may drop a
+detail ("from 9 to 2") or understate ("Participate" for "Own"), which adds nothing false and passes;
+results vary between runs (one Java run passed 0 of 6 before the prompt change). One run per resume
+is not a measurement of rates.
+
+**Decision.** Adopted for the resume check roles (job seeker, advisor, admin). Shown as suggestions
+and a draft, with every rejection and its reason.
+
+**Evidence.** `tests/test_tailor.py`, `tests/test_api.py`, `tests/test_auth.py`
 
 ---
 

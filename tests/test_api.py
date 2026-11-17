@@ -209,3 +209,48 @@ def test_role_report_applies_filters(monkeypatch):
     assert body["matched"] == 16 and body["filters"]["applied"] == "Remote only"
     r = c.post("/api/role-report", data={"role": "data engineer", "work_types": "Contract"})
     assert r.status_code == 422 and r.json()["detail"]["code"] == "no_matching_postings"
+
+
+def _fake_tailor_store(monkeypatch, chunks):
+    class Store:
+        def __init__(self, *a, **k):
+            pass
+
+        def get_posting_chunks(self, job_id):
+            return chunks
+    monkeypatch.setattr(api, "VectorStore", Store)
+
+
+def test_tailor_bullets_returns_shown_and_rejected(monkeypatch):
+    from resumematch.generation.tailor import Rewrite, TailorResult
+    _fake_tailor_store(monkeypatch, [{"text": "Kafka required.", "title": "RN ICU", "company_name": "Acme", "section": "description"}])
+    result = TailorResult("bullets", rewrites=[Rewrite("a b c", "x y z", "Kafka"), Rewrite("a", "b", "c", issue="adds b")])
+    monkeypatch.setattr(api.tailor, "suggest_rewrites", lambda *a: result)
+    body = TestClient(api.app).post("/api/tailor", json={"kind": "bullets", "job_id": "7", "resume_text": RESUME}).json()
+    assert body["shown"] == [{"original": "a b c", "text": "x y z", "requirement": "Kafka"}]
+    assert body["rejected"][0]["issue"] == "adds b" and body["message"] is None
+
+
+def test_tailor_letter_cites_evidence_and_passes_it_on(monkeypatch):
+    from resumematch.generation.tailor import Evidence, LetterSentence, TailorResult
+    _fake_tailor_store(monkeypatch, [{"text": "ACLS required.", "title": "RN ICU", "company_name": "Acme", "section": "description"}])
+    seen = {}
+
+    def draft(resume, title, company, req, evidence, client):
+        seen["evidence"] = evidence
+        return TailorResult("letter", evidence=evidence, sentences=[
+            LetterSentence("I am applying.", 1, 0), LetterSentence("I hold ACLS.", 2, 1)])
+    monkeypatch.setattr(api.tailor, "draft_letter", draft)
+    body = TestClient(api.app).post("/api/tailor", json={
+        "kind": "letter", "job_id": "7", "resume_text": RESUME,
+        "evidence": [{"requirement": "ACLS", "resume_quote": "ACLS, BLS"}]}).json()
+    assert seen["evidence"] == [Evidence("ACLS", "ACLS, BLS")]
+    assert body["paragraphs"][1] == [{"text": "I hold ACLS.", "resume_quote": "ACLS, BLS", "requirement": "ACLS"}]
+
+
+def test_tailor_refuses_bad_requests(monkeypatch):
+    _fake_tailor_store(monkeypatch, [])
+    c = TestClient(api.app)
+    assert c.post("/api/tailor", json={"kind": "poem", "job_id": "7", "resume_text": RESUME}).status_code == 400
+    assert c.post("/api/tailor", json={"kind": "letter", "job_id": "7", "resume_text": " "}).status_code == 400
+    assert c.post("/api/tailor", json={"kind": "letter", "job_id": "7", "resume_text": RESUME}).status_code == 404

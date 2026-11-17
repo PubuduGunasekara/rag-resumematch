@@ -23,7 +23,7 @@ Built with Claude Code assistance; the design, experiments and measurements are 
 | End-to-end time per resume | 13.8 s median (11.4 to 19.4 s) | M3 Pro laptop, Ollama on the Metal GPU, 3 resumes, 9 runs |
 | End-to-end, everything in Docker on CPU | 57 s median (35.5 to 72.3 s) | Docker Desktop on the same Mac (11 CPUs, 8 GB), 3 resumes, 6 runs |
 | Where the time goes | About 96% is the model writing its answer; search and fusion take 0.08 to 0.23 s | Same native runs, `scripts/benchmark.py` |
-| Tests | 302 passing | No model, index or network needed |
+| Tests | 310 passing | No model, index or network needed |
 | Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.88 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
 | Typo correction, false corrections on clean resumes | 6 words in 35 files (45 before the name and word-form rules) | 35 files: the synthetic resumes in `eval/resumes/` and one test resume |
 | Vector search recall against exact search | 0.972 mean recall@30 (0.791 before tuning) | 17 resumes, 91 sections |
@@ -126,6 +126,16 @@ tool in neither the posting nor the resume, is replaced by a plain template, so 
 gets a question. It takes 2 to 6 s.
 ([interview-prep](docs/engineering-log.md#interview-prep))
 
+### Comparing a revised resume
+
+After editing the resume, "Compare a revised version" checks the new file against the same postings
+and requirements as the report, and lists what changed, with the new resume line as evidence. A new
+search could return other postings, so it isn't run. Both versions are checked with one rule and no
+model (one line holding all of a requirement's key words, or two thirds of them when it has more
+than two), so a change comes from the edit rather than from the model answering differently. Parsing
+the new file and comparing took about 40 ms.
+([version-compare](docs/engineering-log.md#version-compare))
+
 ## What went wrong first
 
 Each of these is a real failure I measured, with the fix and the numbers in the
@@ -215,7 +225,7 @@ The same steps are available as `make` targets:
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 302 unit tests (no model or index needed) |
+| `make test` | Run the 310 unit tests (no model or index needed) |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |
@@ -290,7 +300,8 @@ src/resumematch/
   ingest/        parse_resume.py, validate.py, job_postings_loader.py
   preprocess/    chunker.py, boilerplate.py, resume_sections.py, query_correction.py
   retrieval/     embedder.py, vector_store.py, fusion.py, filters.py
-  generation/    ollama_client.py, gap_analysis.py, job_report.py, text_clean.py, tailor.py, interview.py
+  generation/    ollama_client.py, gap_analysis.py, job_report.py, text_clean.py, tailor.py, interview.py,
+                 compare.py
   market/        role_profile.py (role report: terms across all postings with one title)
   frontend/      streamlit_app.py, render.py
   api/           app.py (FastAPI for the Next.js site), auth.py (sign-in and roles)

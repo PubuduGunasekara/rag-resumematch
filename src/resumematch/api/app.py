@@ -16,6 +16,8 @@ Endpoints:
                            resume bullet rewrites or a cover letter for one posting, checked in code
     POST /api/interview    JSON {"job_id", "resume_text", "requirements"}: likely questions for one
                            posting, each with what on the resume to draw on
+    POST /api/compare      multipart "file" (revised resume), form "old_resume_text" and "jobs"
+                           (JSON from the report): which requirements the edit changed
     GET  /api/filter-options  choices and counts for the search filters
     GET  /api/roles        ?q= title suggestions for the role report
     POST /api/role-report  form "role", optional multipart "file": what postings with
@@ -53,6 +55,7 @@ from pydantic import BaseModel
 
 from resumematch.api import auth
 from resumematch.frontend.render import highlight_spans
+from resumematch.generation import compare as version_compare
 from resumematch.generation import interview, tailor
 from resumematch.generation.job_report import requirement_excerpt
 from resumematch.generation.ollama_client import OllamaClient
@@ -449,6 +452,45 @@ def interview_endpoint(body: InterviewBody, _user: auth.User = Depends(RESUME_CH
         raise _error(500, "internal", "Something went wrong. Try again.") from None
     finally:
         _busy.release()
+
+
+def comparison_to_json(c: version_compare.Comparison) -> dict:
+    labels = {"shown": "Shown", "partly": "Partly shown", "not_found": "Not found"}
+    return {
+        "summary": c.summary(),
+        "total": c.total, "shown_before": c.shown_before, "shown_after": c.shown_after,
+        "jobs": [{
+            "job_id": j.job_id, "title": j.title, "company": j.company, "total": j.total,
+            "shown_before": j.shown_before, "shown_after": j.shown_after,
+            "changes": [{"requirement": ch.requirement, "before": labels[ch.before], "after": labels[ch.after],
+                         "better": version_compare._RANK[ch.after] > version_compare._RANK[ch.before],
+                         "evidence": ch.evidence_after or ch.evidence_before} for ch in j.changes],
+        } for j in c.jobs],
+        "added_lines": c.added_lines, "removed_lines": c.removed_lines,
+        "note": "Both versions are checked the same way, by wording and without the model, so these counts can "
+                "differ from the report above.",
+    }
+
+
+@app.post("/api/compare")
+def compare_versions(file: UploadFile = File(...), old_resume_text: str = Form(...), jobs: str = Form(...),
+                     allow_unusual: bool = Form(False), _user: auth.User = Depends(RESUME_CHECK_ROLES)) -> dict:
+    """No model and no search: the report's requirements are checked against
+    both versions, so it takes about a second and needs no busy lock."""
+    if not old_resume_text.strip() or len(old_resume_text) > MAX_RESUME_CHARS:
+        raise _error(400, "bad_resume", "Run the resume check again, then try this.")
+    try:
+        job_list = json.loads(jobs)
+        if not isinstance(job_list, list):
+            raise ValueError
+    except ValueError:
+        raise _error(400, "bad_jobs", "Run the resume check again, then try this.") from None
+    suffix, data = _read_upload(file)
+    try:
+        new_text = _resume_text(suffix, data, allow_unusual)
+    except ResumeRejected as rejected:
+        raise _error(422, rejected.code, rejected.message, rejected.soft) from None
+    return comparison_to_json(version_compare.compare(old_resume_text, new_text, job_list))
 
 
 @app.post("/api/analyze")

@@ -39,6 +39,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 29 | 2026-11-16 | Feature | [Search filters](#search-filters) | Adopted |
 | 30 | 2026-11-16 | Feature | [Resume bullet rewrites and a cover letter, checked in code](#tailoring) | Adopted |
 | 31 | 2026-11-16 | Feature | [Interview prep from the report](#interview-prep) | Adopted |
+| 32 | 2026-11-16 | Feature | [Comparing a revised resume against the same postings](#version-compare) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -1016,6 +1017,44 @@ The model asked for 2 general questions in every run but returned them in only o
 generated.
 
 **Evidence.** `tests/test_interview.py`, `tests/test_api.py`
+
+---
+
+<a id="version-compare"></a>
+## 32. Comparing a revised resume against the same postings
+
+**Feature, 2026-11-16. Outcome: adopted.**
+
+**Problem.** After acting on a report, a job seeker wants to know whether the edit helped. Running
+the full check again searches again, can return other postings, and the model answers differently
+between runs, so two reports can't be compared.
+
+**Hypothesis.** Keeping the report's postings and requirements fixed, and checking both versions
+with the same lexical rule and no model, shows only what the edit changed.
+
+**Method.** `generation/compare.py`. A requirement is shown when one resume line, or two
+consecutive lines for PDF wraps, holds its key terms; partly when two or more of its terms appear
+anywhere; otherwise not found. General strengths are skipped, as in the report's counts. Tested in
+the browser with the accountant resume: its report, then two revised copies made with python-docx.
+
+**Results.**
+
+| Version | Edit | Result |
+|---|---|---|
+| v2 | Added a bullet on the general ledger and GAAP financial statements | "Both versions show 6 of 15 requirements"; no requirement in these postings asked for it |
+| v3 | v2 plus a credit card reconciliation bullet and SAP in the tools line | 6 to 8 of 15; SAP and Credit Card Reconciliation moved to shown, each with the new line |
+
+Parsing the revised file took 4 ms and comparing 15 requirements in 4 postings took 35.5 ms. The
+first rule (half of the key terms on one line) counted "Charge nurse experience" as shown from a line
+saying "Staff nurse", so a requirement with one or two key terms now needs all of them. Also fixed:
+bullet glyphs in the evidence, "these 1 posting", and postings with no requirements in the count.
+
+Limit: matching is by wording, so the counts can differ from the model-based report above it, and
+the page says so.
+
+**Decision.** Adopted for the resume check roles.
+
+**Evidence.** `tests/test_compare.py`, `tests/test_api.py`
 
 ---
 

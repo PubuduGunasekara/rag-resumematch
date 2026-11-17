@@ -280,3 +280,22 @@ def test_interview_with_nothing_checkable_says_so(monkeypatch):
     monkeypatch.setattr(api.interview, "prepare", lambda *a: InterviewPrep([], []))
     body = TestClient(api.app).post("/api/interview", json={"job_id": "7", "resume_text": RESUME}).json()
     assert body["items"] == [] and "nothing to prepare" in body["message"]
+
+
+def test_compare_reports_changes_between_versions(monkeypatch):
+    import json as _json
+    monkeypatch.setattr(api, "_resume_text", lambda *a: "Maria Delgado, RN\nCertifications: ACLS, BLS, PALS\nECMO support.")
+    jobs = [{"job_id": "7", "title": "RN ICU", "company": "Acme", "requirements": ["ACLS certification", "ECMO experience"]}]
+    body = TestClient(api.app).post("/api/compare", files={"file": ("v2.pdf", b"%PDF")},
+                                    data={"old_resume_text": RESUME, "jobs": _json.dumps(jobs)}).json()
+    assert (body["shown_before"], body["shown_after"]) == (1, 2)
+    assert body["jobs"][0]["changes"] == [{"requirement": "ECMO experience", "before": "Not found", "after": "Shown",
+                                           "better": True, "evidence": "ECMO support."}]
+    assert body["summary"] == "Your revised resume shows 2 of 2 requirements in this posting, up from 1."
+
+
+def test_compare_refuses_bad_input(client):
+    r = client.post("/api/compare", files={"file": ("v2.pdf", b"%PDF")}, data={"old_resume_text": RESUME, "jobs": "{"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "bad_jobs"
+    r = client.post("/api/compare", files={"file": ("v2.txt", b"x")}, data={"old_resume_text": RESUME, "jobs": "[]"})
+    assert r.status_code == 415

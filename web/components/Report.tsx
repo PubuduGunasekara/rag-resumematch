@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import type { Job, Report, Requirement } from "@/lib/types";
 import { FilterNote } from "@/components/Filters";
 import Tailor from "@/components/Tailor";
+import Compare from "@/components/Compare";
 
 const STATUS: Record<Requirement["status"], string> = { shown: "Shown", partly: "Partly shown", not_found: "Not found" };
 
@@ -171,6 +172,8 @@ export default function ReportView({ report, fileName }: { report: Report; fileN
           ))
         )}
       </div>
+
+      <Compare report={report} />
 
       <div className="section">
         <p className="tag">Your resume, with the evidence marked</p>

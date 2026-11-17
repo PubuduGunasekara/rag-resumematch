@@ -43,6 +43,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 33 | 2026-11-16 | Feature | [Recruiter mode: ranking resumes for a job, with blind review](#recruiter-mode) | Adopted |
 | 34 | 2026-11-16 | Feature | [Asking questions about the report](#ask-report) | Adopted |
 | 35 | 2026-11-16 | Deployment | [The API and the site in Docker](#docker-site) | Adopted |
+| 36 | 2026-11-16 | Interface | [The site as a workspace, with an assistant from sign-in](#workspace-redesign) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -1211,6 +1212,68 @@ profile, and the GCP profile, which still has never been started.
 **Decision.** Adopted. The full system now starts with one compose command.
 
 **Evidence.** `docker-compose.local.yml`, `docker-compose.gcp.yml`, `web/Dockerfile`, `entrypoint.sh`
+
+---
+
+<a id="workspace-redesign"></a>
+## 36. The site as a workspace, with an assistant from sign-in
+
+**Interface, 2026-11-16. Outcome: adopted.**
+
+**Problem.** Features had been added one page section at a time. Resume edits, the cover letter and
+interview prep sat inside each posting's expanded checklist, where a user had to find them; the chat
+appeared only at the bottom of a finished report; and nothing told a new user what the system does
+before they uploaded a file.
+
+**Hypothesis.** Organizing the site the way established resume tools do, with an upload-first start
+and a workspace of distinct pages, plus an assistant that is present from sign-in and can start any
+feature, makes every feature findable without changing what the features do.
+
+**Method.** I looked at four resume tools' public pages (Jobscan, Teal, Resume Worded, Rezi). All
+put a resume upload first, show a match or score against a job, offer rewrites and cover letters as
+separate tools, and present feedback line by line against the resume. The site was rebuilt to match
+that structure:
+
+| Before | After |
+|---|---|
+| One long results page | Start (what to expect, upload, then an overview), Matches, Resume evidence, Tailor, Compare versions |
+| Edits, letter and interview prep inside each posting's checklist | A Tailor page with a posting picker and three tabs, linked from every posting |
+| Highlighted resume per posting | Requirement chips grouped by status; clicking one highlights its line and shows the posting's sentence |
+| Chat at the bottom of the report | An assistant docked on every page, open after sign-in, a bottom sheet on a phone |
+| IBM Plex Sans and Source Serif, warm paper colors | Inter and Plus Jakarta Sans, cool neutrals, a teal brand color, amber for partial, red for errors only |
+
+The assistant (`chat/assistant.py`) routes in code: greetings and "what can you do" get a role-specific
+explanation; privacy questions get a fixed answer; "what do X postings ask for" runs the role report;
+"draft a cover letter for the second posting", "suggest resume edits", "prepare me for the interview"
+and "compare" become actions the site runs with the existing endpoints; anything needing a resume
+without one asks for it; the rest goes to the report Q&A (entry 34). Each requirement now carries its
+own resume span.
+
+**Results.** In the browser, as the job seeker, then the recruiter:
+
+| Check | Result |
+|---|---|
+| After sign-in | Assistant open with a welcome that lists only existing features and offers Upload and Explore a role |
+| "What do data engineer postings ask for?" before a resume | 331 postings, top terms with shares, in 0.9 s |
+| "Draft a cover letter for the second posting" before a resume | Asks for the resume first |
+| Upload on Start | Progress steps, then the overview; the assistant changes to "Your report is ready" with new suggestions |
+| "Draft a cover letter for the second posting" with a report | Letter written and opened on Tailor, Cover letter tab, right posting, in 13.2 s |
+| Resume evidence: click a shown requirement | Its line highlighted in the resume, with the resume quote and the posting's sentence |
+| Reload | Report and conversation restored from the tab |
+| Phone width (375 px) | No sideways scroll; sidebar becomes a menu; assistant opens as a bottom sheet |
+| Sign out, sign in as recruiter | Previous report and conversation cleared; recruiter sees Explore a role and Rank candidates and a recruiter welcome |
+
+Fixed while testing: `scrollIntoView` on the resume moved the sticky app shell (now only the window
+scrolls), "not checked" overflowed the small fit rings, "Rely Services, Inc.." had a doubled period,
+and a reload cleared the conversation (now kept for the tab).
+
+The progress steps during a check advance on a timer matched to a typical run, because the pipeline
+does not report progress; the page says it usually takes about 20 s. The README screenshots show the
+previous design.
+
+**Decision.** Adopted.
+
+**Evidence.** `tests/test_assistant.py`, `tests/test_api.py`
 
 ---
 

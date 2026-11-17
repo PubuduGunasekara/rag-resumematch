@@ -88,8 +88,14 @@ index path and the Kaggle credentials.
 ## Interfaces
 
 Two front ends render the same report. Streamlit (`frontend/streamlit_app.py`) is the quick
-local interface: one process, no build step. The Next.js site (`web/`) is the polished,
+local interface: one process, no build step. The Next.js site (`web/`) is the full,
 public-facing one; it calls a FastAPI service (`api/app.py`) that wraps the same pipeline.
+The site is an app shell (`components/AppShell.tsx`): role-based sidebar, pages for Start,
+Matches, Resume evidence, Tailor, Compare, Explore a role and Rank candidates, and an assistant
+docked on the right (`components/Assistant.tsx`, `/api/assistant`). The report, tailoring results
+and conversation live in `lib/workspace.tsx` and sessionStorage, shared by every page and the
+assistant, and cleared on sign-out. Each requirement carries its own resume span so the evidence
+page can highlight one at a time. Fonts are Inter and Plus Jakarta Sans, self-hosted at build time.
 All text a user reads is produced in Python, and highlight positions in the resume are computed
 in Python and sent to the page, so both interfaces always match.
 
@@ -173,7 +179,7 @@ Docker images still run Streamlit only, which has no sign-in.
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
-| Unit tests | 336 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Unit tests | 353 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
 | Site and API in Docker | Sign-in, role checks (401 signed out, 403 wrong role), role report 2.3 s, resume check 23.1 s, chat 1.8 s (code) and 7.3 s (model) | Docker Desktop on the M3 Pro, full index mounted, Ollama native on the Mac | One run each through the site container | 2026-11-16 | Log, [docker-site](engineering-log.md#docker-site) |
 | Chat answers | Code answers 0.1 to 2.0 s; model answers 2.2 to 6.9 s; off-topic declined in 0.1 to 0.5 s | M3 Pro, `llama3.2:3b` | Nurse and accountant reports, runs of 3 to 6 questions each | 2026-11-16 | Log, [ask-report](engineering-log.md#ask-report) |
 | Recruiter ranking | Same 9 requirements and same order in 2 runs; extraction 2.0 to 2.1 s, ranking 96 ms for 4 resumes | M3 Pro, `llama3.2:3b` | One backend job description, 4 synthetic resumes | 2026-11-16 | Log, [recruiter-mode](engineering-log.md#recruiter-mode) |

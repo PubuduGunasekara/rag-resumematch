@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Sans, Source_Serif_4 } from "next/font/google";
-import Link from "next/link";
-import Nav from "@/components/Nav";
+import { Inter, Plus_Jakarta_Sans } from "next/font/google";
+import AppShell from "@/components/AppShell";
 import { SessionProvider } from "@/lib/session";
+import { WorkspaceProvider } from "@/lib/workspace";
 import "./globals.css";
 
 // Self-hosted at build time by next/font: no request to Google at runtime.
-const sans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-sans" });
-const serif = Source_Serif_4({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-serif" });
+// Inter for reading (tabular figures for counts), Plus Jakarta Sans for headings.
+const sans = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+const display = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-display", display: "swap" });
 
 export const metadata: Metadata = {
   title: "ResumeMatch",
@@ -16,17 +17,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${serif.variable}`}>
+    <html lang="en" className={`${sans.variable} ${display.variable}`}>
       <body>
         <SessionProvider>
-        <header className="site-header">
-          <Link href="/" className="wordmark">ResumeMatch</Link>
-          <Nav />
-        </header>
-        <main>{children}</main>
-        <footer className="site-footer">
-          Postings from LinkedIn Job Postings 2023 to 2024 by Arsh Koneru, CC BY-SA 4.0. Listings may have closed.
-        </footer>
+          <WorkspaceProvider>
+            <AppShell>{children}</AppShell>
+          </WorkspaceProvider>
         </SessionProvider>
       </body>
     </html>

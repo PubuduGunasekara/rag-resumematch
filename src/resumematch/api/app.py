@@ -22,6 +22,8 @@ Endpoints:
                            candidates ranked against the job's requirements (recruiter, admin)
     POST /api/chat         JSON {"question", "resume_text", "jobs", "history"}: a question about the
                            report, answered from the resume and its postings with sources
+    POST /api/assistant    JSON {"message", "resume_text"?, "jobs"?, "history"}: the assistant that
+                           works from sign-in; routes to help, a role report, an action or /api/chat
     GET  /api/filter-options  choices and counts for the search filters
     GET  /api/roles        ?q= title suggestions for the role report
     POST /api/role-report  form "role", optional multipart "file": what postings with
@@ -59,6 +61,7 @@ from pydantic import BaseModel
 
 from resumematch.api import auth
 from resumematch.chat import ask
+from resumematch.chat import assistant as assistant_router
 from resumematch.frontend.render import highlight_spans
 from resumematch.generation import compare as version_compare
 from resumematch.generation import interview, tailor
@@ -127,7 +130,10 @@ def report_to_json(result: PipelineResult, total_postings: int | None = None) ->
             "rank": job.rank, "job_id": job.job_id, "title": job.title, "company": job.company,
             "url": job.url, "details": job.details, "tier": job.tier, "reason": job.reason,
             "met": job.met, "checked": job.checked, "partly": sum(bool(r.partly) for r in job.gaps),
-            "requirements": [{**asdict(r), "status": r.status} for r in job.requirements],
+            # Each requirement's own evidence span, so the site can highlight one at a time.
+            "requirements": [{**asdict(r), "status": r.status,
+                              "spans": highlight_spans(result.resume_text, [r.resume_quote]) if r.met and r.resume_quote else []}
+                             for r in job.requirements],
             "highlight": highlight_spans(result.resume_text, quotes),
         })
     analysis = report.analysis
@@ -643,6 +649,60 @@ def chat_to_json(a: ask.ChatAnswer) -> dict:
                     for p in a.pieces if p.id in cited],
         "removed": [{"text": s.text, "issue": s.issue} for s in a.sentences if s.issue],
     }
+
+
+class AssistantJob(ChatJob):
+    title: str = ""
+    company: str | None = None
+
+
+class AssistantBody(BaseModel):
+    message: str
+    resume_text: str = ""
+    jobs: list[AssistantJob] = []
+    history: list[ChatTurn] = []
+
+
+def _role_summary(title: str, resume_text: str) -> dict:
+    """The role report, shortened for a chat reply. Same code as /api/role-report."""
+    store, titles, background = _role_data()
+    profile = role_profile.build_role_profile(store, titles, background, title,
+                                              details=_load_json(str(DETAILS_PATH)) or {},
+                                              resume_text=resume_text or None)
+    display = title.title() if title.islower() else title
+    headline, summary = role_profile.summarize(profile, display)
+    return {"title": display, "headline": headline, "summary": summary, "analyzed": profile.analyzed,
+            "terms": [{"term": t.term, "share": t.share, "shown": t.shown} for t in profile.terms[:10]]}
+
+
+@app.post("/api/assistant")
+def assistant(body: AssistantBody, user: auth.User = Depends(ALL_ROLES)) -> dict:
+    """One chat box for every role, from sign-in. Routing is code
+    (chat/assistant.py); only report questions reach the model, through the
+    same path and checks as /api/chat."""
+    message = " ".join(body.message.split())
+    if len(message) < 1 or len(message) > ask.MAX_QUESTION_CHARS:
+        raise _error(400, "bad_question", f"Ask a question of up to {ask.MAX_QUESTION_CHARS} characters.")
+    if len(body.resume_text) > MAX_RESUME_CHARS:
+        raise _error(400, "bad_resume", "Run the resume check again, then try this.")
+    jobs = [{"job_id": j.job_id, "title": j.title, "company": j.company, "closest": j.closest} for j in body.jobs]
+    reply = assistant_router.route(message, user.role, bool(body.resume_text.strip()), jobs)
+    if reply is not None:
+        out = {"kind": reply.kind, "text": reply.text, "actions": reply.actions, "suggestions": reply.suggestions}
+        if reply.kind == "role":
+            try:
+                summary = _role_summary(reply.actions[0]["title"], body.resume_text)
+            except IndexNotBuiltError:
+                raise _error(503, "no_index", "The job postings index hasn't been built yet.") from None
+            out["role"] = summary
+            out["text"] = [summary["headline"] + ".", summary["summary"]]
+            out["actions"] = [{"type": "open", "href": f"/role?title={summary['title']}", "label": "Open the full role report"}]
+        return out
+    if user.role not in assistant_router.RESUME_ROLES:
+        reply = assistant_router.help_reply(user.role, False)
+        return {"kind": reply.kind, "text": reply.text, "actions": reply.actions, "suggestions": reply.suggestions}
+    chat_body = ChatBody(question=message, resume_text=body.resume_text, jobs=body.jobs, history=body.history)
+    return {"kind": "qa", "text": [], "actions": [], "suggestions": [], "answer": chat(chat_body, user)}
 
 
 @app.post("/api/chat")

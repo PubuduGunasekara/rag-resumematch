@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import * as I from "@/components/Icons";
 import { homeFor, type Role } from "@/lib/session";
 
 type DemoAccount = { email: string; role_label: string; does: string };
@@ -15,6 +16,11 @@ function LoginForm() {
   const [accounts, setAccounts] = useState<DemoAccount[]>([]);
   const [demoPassword, setDemoPassword] = useState<string | null>(null);
   const submitButton = useRef<HTMLButtonElement>(null);
+  const [postings, setPostings] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/health").then((r) => (r.ok ? r.json() : null)).then((h) => setPostings(h?.postings ?? null)).catch(() => {});
+  }, []);
 
   // The API lists the demo accounts, and the shared password when the
   // operator has made it public (DEMO_PASSWORD_PUBLIC=1).
@@ -52,46 +58,56 @@ function LoginForm() {
   }
 
   return (
-    <>
-      <p className="tag">Sign in</p>
-      <h1 className="serif">Sign in to ResumeMatch</h1>
-      <p className="lede">
-        This is a demo with one account per role.{" "}
-        {demoPassword
-          ? "Pick a role below to fill in its email and password, then sign in."
-          : "All four share the demo password set in the server's .env file."}
-      </p>
+    <div className="auth-card">
+      <section className="auth-side">
+        <div className="brand"><span className="brand-mark" aria-hidden="true">R</span><span>ResumeMatch</span></div>
+        <h1>Know which real jobs your resume fits, before you apply.</h1>
+        <p>Your resume against {postings ? `${postings.toLocaleString()} ` : ""}real LinkedIn postings, with every claim checked against what you wrote.</p>
+        <ul className="auth-points">
+          <li><I.Check size={16} /> The closest postings and each requirement, with the line of your resume that shows it</li>
+          <li><I.Check size={16} /> Resume edits, a cover letter and interview prep for any posting, with invented facts removed</li>
+          <li><I.Check size={16} /> An assistant that answers from your resume and the postings, with sources</li>
+          <li><I.Check size={16} /> For recruiters: rank candidates for a job, with blind review</li>
+        </ul>
+      </section>
 
-      <form className="role-form" onSubmit={submit}>
-        <label>
-          Email
-          <input type="text" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          Password
-          <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
-        <div className="row">
-          <button ref={submitButton} className="button" type="submit" disabled={working}>{working ? "Signing in" : "Sign in"}</button>
-        </div>
-      </form>
-      {error && <div className="error-box" role="alert"><p className="error">{error}</p></div>}
+      <section className="auth-form">
+        <p className="eyebrow">Sign in</p>
+        <h2>Welcome</h2>
+        <p className="muted small" style={{ margin: 0 }}>
+          This is a demo with one account per role.{" "}
+          {demoPassword ? "Pick a role to fill in its email and password." : "All four share the demo password set on the server."}
+        </p>
+        <form className="role-form" onSubmit={submit}>
+          <label>
+            Email
+            <input type="text" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </label>
+          <label>
+            Password
+            <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </label>
+          <div className="row" style={{ marginTop: 0 }}>
+            <button ref={submitButton} className="btn primary" type="submit" disabled={working}>{working ? "Signing in" : "Sign in"}</button>
+          </div>
+        </form>
+        {error && <div className="error-box" role="alert"><p className="error">{error}</p></div>}
 
-      {accounts.length > 0 && (
-        <div className="section">
-          <p className="tag">Demo accounts</p>
-          {accounts.map((a) => (
-            <div className="learn" key={a.email}>
-              <span><b style={{ fontWeight: 500 }}>{a.role_label}</b><br /><span className="small muted">{a.does}</span></span>
-              <button type="button" className="button ghost" aria-pressed={email === a.email} onClick={() => pick(a)}
-                      aria-label={`Fill in the ${a.role_label} account`}>
-                {demoPassword ? "Fill in" : "Use email"}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </>
+        {accounts.length > 0 && (
+          <div className="demo-list" aria-label="Demo accounts">
+            {accounts.map((a) => (
+              <div className={`demo-item${email === a.email ? " on" : ""}`} key={a.email}>
+                <span><b>{a.role_label}</b>{a.does}</span>
+                <button type="button" className="btn ghost small" aria-pressed={email === a.email} onClick={() => pick(a)}
+                        aria-label={`Fill in the ${a.role_label} account`}>
+                  {demoPassword ? "Fill in" : "Use email"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 

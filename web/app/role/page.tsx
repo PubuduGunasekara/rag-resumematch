@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { RoleReport } from "@/lib/types";
 import { handleSignedOut } from "@/lib/session";
 import Filters, { appendFilters, FilterNote, NO_FILTERS, type FilterValues } from "@/components/Filters";
@@ -26,7 +27,8 @@ function Facts({ report }: { report: RoleReport }) {
   return <div className="facts">{items.map((i) => <span key={i}>{i}</span>)}</div>;
 }
 
-export default function RolePage() {
+function RoleView() {
+  const params = useSearchParams();
   const [role, setRole] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [filters, setFilters] = useState<FilterValues>(NO_FILTERS);
@@ -35,6 +37,12 @@ export default function RolePage() {
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // Opened from the assistant with ?title=...: run that report straight away.
+  useEffect(() => {
+    const title = params.get("title");
+    if (title) { setRole(title); run(title); }
+  }, [params]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Title suggestions from the index, after a short pause in typing.
   useEffect(() => {
@@ -160,4 +168,8 @@ export default function RolePage() {
       )}
     </>
   );
+}
+
+export default function RolePage() {
+  return <Suspense><RoleView /></Suspense>;
 }

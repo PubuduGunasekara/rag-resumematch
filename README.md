@@ -23,7 +23,7 @@ Built with Claude Code assistance; the design, experiments and measurements are 
 | End-to-end time per resume | 13.8 s median (11.4 to 19.4 s) | M3 Pro laptop, Ollama on the Metal GPU, 3 resumes, 9 runs |
 | End-to-end, everything in Docker on CPU | 57 s median (35.5 to 72.3 s) | Docker Desktop on the same Mac (11 CPUs, 8 GB), 3 resumes, 6 runs |
 | Where the time goes | About 96% is the model writing its answer; search and fusion take 0.08 to 0.23 s | Same native runs, `scripts/benchmark.py` |
-| Tests | 336 passing | No model, index or network needed |
+| Tests | 353 passing | No model, index or network needed |
 | Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.88 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
 | Typo correction, false corrections on clean resumes | 6 words in 35 files (45 before the name and word-form rules) | 35 files: the synthetic resumes in `eval/resumes/` and one test resume |
 | Vector search recall against exact search | 0.972 mean recall@30 (0.791 before tuning) | 17 resumes, 91 sections |
@@ -75,9 +75,28 @@ the reasoning for each are in [docs/design.md](docs/design.md).
     uploaded file is then deleted.
 
 There are two interfaces on purpose. Streamlit is the quick local one: one command, no build.
-The Next.js site is the polished one meant for other people, backed by a small FastAPI service.
-Both show exactly the same report, because all text and highlight positions come from the
-Python code.
+The Next.js site is the full one meant for other people, backed by a small FastAPI service.
+All text and highlight positions come from the Python code, so both say the same thing.
+
+The site is a workspace. After sign-in, an assistant is open beside every page and explains
+what the system does; it asks for a resume, takes one directly, and once there is a report it
+answers questions about it and starts work on request ("draft a cover letter for the second
+posting" writes it and opens it). Routing is code (`chat/assistant.py`): help, role questions and
+actions never reach the model, so it can't offer a feature that doesn't exist. The pages:
+
+| Page | What it holds |
+|---|---|
+| Start | What to expect and the upload, then an overview: closest match, other postings, what to work on |
+| Matches | Every posting with its fit ring and full checklist |
+| Resume evidence | The resume as written; click a requirement to highlight the line that shows it |
+| Tailor | Resume edits, cover letter and interview prep for any posting, in tabs |
+| Compare versions | A revised resume against the same postings |
+| Explore a role | What postings for a job title ask for |
+| Rank candidates | Recruiter mode (recruiter and admin) |
+
+The report and the conversation stay in the browser tab only, and signing out clears them.
+([workspace-redesign](docs/engineering-log.md#workspace-redesign)) The screenshots below show the
+previous design.
 
 ![The results page for a sample accountant resume](docs/images/report.png)
 
@@ -254,7 +273,7 @@ The same steps are available as `make` targets:
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 336 unit tests (no model or index needed) |
+| `make test` | Run the 353 unit tests (no model or index needed) |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |
@@ -333,7 +352,7 @@ src/resumematch/
                  compare.py
   market/        role_profile.py (role report: terms across all postings with one title)
   recruit/       rank.py (rank resumes for a job description), blind.py (blind review)
-  chat/          ask.py (questions about the report, answered with sources)
+  chat/          ask.py (questions about the report, answered with sources), assistant.py (routing)
   frontend/      streamlit_app.py, render.py
   api/           app.py (FastAPI for the Next.js site), auth.py (sign-in and roles)
   pipeline.py    runs steps 2 to 9 for one resume

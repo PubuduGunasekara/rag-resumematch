@@ -7,11 +7,17 @@ export interface User { email: string; name: string; role: Role; role_label: str
 
 // Mirrors the role checks in resumematch/api/auth.py and app.py. The API
 // enforces them; this list only decides which links to show.
-export const PAGES: { href: string; label: string; roles: Role[] }[] = [
-  { href: "/", label: "Check a resume", roles: ["seeker", "advisor", "admin"] },
-  { href: "/role", label: "Explore a role", roles: ["seeker", "recruiter", "advisor", "admin"] },
-  { href: "/recruit", label: "Rank candidates", roles: ["recruiter", "admin"] },
-  { href: "/admin", label: "Admin", roles: ["admin"] },
+export type PageDef = { href: string; label: string; roles: Role[]; icon: string; needsReport?: boolean; group: string };
+
+export const PAGES: PageDef[] = [
+  { href: "/", label: "Start", roles: ["seeker", "advisor", "admin"], icon: "home", group: "Your resume" },
+  { href: "/matches", label: "Matches", roles: ["seeker", "advisor", "admin"], icon: "briefcase", needsReport: true, group: "Your resume" },
+  { href: "/resume", label: "Resume evidence", roles: ["seeker", "advisor", "admin"], icon: "file", needsReport: true, group: "Your resume" },
+  { href: "/tailor", label: "Tailor", roles: ["seeker", "advisor", "admin"], icon: "pen", needsReport: true, group: "Your resume" },
+  { href: "/compare", label: "Compare versions", roles: ["seeker", "advisor", "admin"], icon: "layers", needsReport: true, group: "Your resume" },
+  { href: "/role", label: "Explore a role", roles: ["seeker", "recruiter", "advisor", "admin"], icon: "compass", group: "Market" },
+  { href: "/recruit", label: "Rank candidates", roles: ["recruiter", "admin"], icon: "users", group: "Hiring" },
+  { href: "/admin", label: "Admin", roles: ["admin"], icon: "shield", group: "System" },
 ];
 
 export function homeFor(role: Role): string {
@@ -43,6 +49,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    // The report and the conversation belong to this user: clear them for whoever signs in next.
+    try { sessionStorage.removeItem("rm_workspace_v1"); sessionStorage.removeItem("rm_assistant_v1"); } catch { /* ignore */ }
     setUser(null);
     window.location.href = "/login";
   }, []);

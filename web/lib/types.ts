@@ -13,6 +13,7 @@ export interface Requirement {
   resume_quote: string | null;
   posting_sentence: string | null;
   partly: string[];
+  spans: [number, number][];   // where resume_quote is in resume_text
 }
 
 export interface Job {

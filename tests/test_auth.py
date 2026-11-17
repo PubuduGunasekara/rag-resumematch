@@ -52,6 +52,7 @@ def test_roles_are_enforced_by_the_api(client):
     assert client.get("/api/admin/overview").status_code == 403
     tailor = client.post("/api/tailor", json={"kind": "letter", "job_id": "1", "resume_text": "x"})
     assert tailor.status_code == 403
+    assert client.post("/api/chat", json={"question": "Do I have ACLS?", "resume_text": "x"}).status_code == 403
     sign_in(client, "seeker@example.com")
     assert client.post("/api/rank", data={"job_text": "x"}, files=[("files", ("a.pdf", b"x"))]).status_code == 403
     sign_in(client, "admin@example.com")

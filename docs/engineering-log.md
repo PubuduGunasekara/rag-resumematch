@@ -41,6 +41,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 31 | 2026-11-16 | Feature | [Interview prep from the report](#interview-prep) | Adopted |
 | 32 | 2026-11-16 | Feature | [Comparing a revised resume against the same postings](#version-compare) | Adopted |
 | 33 | 2026-11-16 | Feature | [Recruiter mode: ranking resumes for a job, with blind review](#recruiter-mode) | Adopted |
+| 34 | 2026-11-16 | Feature | [Asking questions about the report](#ask-report) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -1110,6 +1111,58 @@ education section; the names are sent to the browser so they can be revealed, an
 **Decision.** Adopted for the recruiter and admin roles; blind review on by default.
 
 **Evidence.** `tests/test_recruit.py`, `tests/test_api.py`, `tests/test_auth.py`
+
+---
+
+<a id="ask-report"></a>
+## 34. Asking questions about the report
+
+**Feature, 2026-11-16. Outcome: adopted, with a known limit.**
+
+**Problem.** A report answers the questions it was built for. A job seeker has others: does this
+posting need pediatric experience, which of these list a salary, what do I have that they ask for.
+
+**Hypothesis.** Retrieval over the resume and the report's postings, a schema-constrained answer
+that cites numbered pieces, and per-sentence checks in code give answers that can be trusted or at
+least verified, even from a 3B model.
+
+**Method.** `chat/ask.py`, developed by running real questions on the nurse and accountant reports
+and reading every answer. What each run showed, and the change it led to:
+
+| Run | What the model did | Change |
+|---|---|---|
+| 1 | Wrote "(piece 4)" and "[2]" in its sentences, read as numbers; repeated one sentence 5 times; set the "not in pieces" flag first and stopped | Citations stripped from text; repeats dropped; answer before flag in the schema |
+| 2 | Answered every question with "public transportation", from a benefits passage and a junk report requirement | Passages from requirement sentences only; postings numbered with a legend; closest match marked |
+| 3 | Copied pieces whole, with their headers | Headers that can't be copied as text; "in your own words" |
+| 4 | "You have experience in a Level II Trauma center" and "in a teaching hospital" for a resume saying "Level I trauma center" | A claim about the candidate may not use words from a posting that the resume lacks |
+| 5 | Listed jobs as having a salary when their facts said "not listed"; nothing true to say about fit | Fit and facts questions answered by code from the report's data |
+| 6 | Told a "joke" from resume lines; echoed the previous answer; sentences began "and mention" | Relevance cutoff; one turn of history; posting references replaced by names |
+| 7 | "Which posting asks for SAP?" declined as off-topic | A question with a key word in the pieces is on topic |
+
+**Results.** Relevance, nurse report: best similarity 0.644 to 0.781 for 6 on-topic questions, 0.492
+to 0.581 for 5 off-topic ones; cutoff 0.62. Final behaviour, in the browser on the accountant report:
+
+| Question | Answered by | Time | Result |
+|---|---|---|---|
+| Why is my closest match a good fit? | code | 2.0 s | Names the posting and the verified requirements with resume quotes |
+| Which of these jobs list a salary? | code | 0.5 s | All 5 postings with location, work type, level and salary or "not listed" |
+| What do these postings say about month-end close? | model | 5.0 s | 3 sentences, each matching its cited posting passage |
+| Which posting asks for SAP? | model | 4.0 s | One sentence naming a posting that mentions SOX, not SAP; no posting passage with SAP was retrieved |
+| Tell me a joke | declined | 0.5 s | "That doesn't seem to be about your resume or these postings" |
+
+Across the Python runs, model answers took 2.2 to 6.9 s.
+
+Known limit, not fixed: "Do I have the CPA these jobs ask for?" got "You have the CPA certification
+mentioned in your resume, as you passed FAR and AUD", for a resume that says "CPA candidate", and a
+contradicting sentence after it. Every word is on the resume, so no lexical check catches it. The
+sources are listed under each answer and the page says which answers the model wrote. The similarity
+cutoff rests on 11 questions from one report.
+
+**Decision.** Adopted for the resume check roles, as an aid with visible sources, not as an
+authority. A larger model on the planned GPU deployment is the place to measure whether the
+misreadings drop.
+
+**Evidence.** `tests/test_chat.py`, `tests/test_api.py`, `tests/test_auth.py`
 
 ---
 

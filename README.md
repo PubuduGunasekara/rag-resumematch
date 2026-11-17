@@ -23,7 +23,7 @@ Built with Claude Code assistance; the design, experiments and measurements are 
 | End-to-end time per resume | 13.8 s median (11.4 to 19.4 s) | M3 Pro laptop, Ollama on the Metal GPU, 3 resumes, 9 runs |
 | End-to-end, everything in Docker on CPU | 57 s median (35.5 to 72.3 s) | Docker Desktop on the same Mac (11 CPUs, 8 GB), 3 resumes, 6 runs |
 | Where the time goes | About 96% is the model writing its answer; search and fusion take 0.08 to 0.23 s | Same native runs, `scripts/benchmark.py` |
-| Tests | 322 passing | No model, index or network needed |
+| Tests | 336 passing | No model, index or network needed |
 | Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.88 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
 | Typo correction, false corrections on clean resumes | 6 words in 35 files (45 before the name and word-form rules) | 35 files: the synthetic resumes in `eval/resumes/` and one test resume |
 | Vector search recall against exact search | 0.972 mean recall@30 (0.791 before tuning) | 17 resumes, 91 sections |
@@ -125,6 +125,21 @@ match, and an honest-answer hint for a gap. A question that doesn't name its req
 tool in neither the posting nor the resume, is replaced by a plain template, so every requirement
 gets a question. It takes 2 to 6 s.
 ([interview-prep](docs/engineering-log.md#interview-prep))
+
+### Asking about the report
+
+"Ask about this report" answers questions from the resume and the report's postings, and lists the
+sources under each answer. Questions the report's data answers exactly are answered by code, not the
+model: why the closest match fits (from the verified checks) and salary, remote, location, work type
+and level (from the posting facts). A question unrelated to the resume or postings is declined
+without calling the model. For everything else the model writes a few sentences that cite numbered
+pieces, and code removes any sentence that cites nothing, states a number or names a tool that isn't
+in what it cites, or says the candidate has something taken from a posting that the resume doesn't
+show. On a nurse's resume that says "Level I trauma center", that last check removed "You have
+experience in a Level II Trauma center" and "in a teaching hospital". It does not catch a sentence
+that misreads the resume's own words, such as "You have the CPA certification" for "CPA candidate".
+Code answers took 0.1 to 2 s and model answers 2 to 7 s. The conversation is kept in the page only.
+([ask-report](docs/engineering-log.md#ask-report))
 
 ### Comparing a revised resume
 
@@ -239,7 +254,7 @@ The same steps are available as `make` targets:
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 322 unit tests (no model or index needed) |
+| `make test` | Run the 336 unit tests (no model or index needed) |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |
@@ -318,6 +333,7 @@ src/resumematch/
                  compare.py
   market/        role_profile.py (role report: terms across all postings with one title)
   recruit/       rank.py (rank resumes for a job description), blind.py (blind review)
+  chat/          ask.py (questions about the report, answered with sources)
   frontend/      streamlit_app.py, render.py
   api/           app.py (FastAPI for the Next.js site), auth.py (sign-in and roles)
   pipeline.py    runs steps 2 to 9 for one resume

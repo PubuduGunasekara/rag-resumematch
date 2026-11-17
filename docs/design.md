@@ -135,6 +135,15 @@ stores that line as the text resumes are checked against when it has at most 14 
 then goes through `generation/compare.check`, which ignores amounts ("5+"), accepts either side of
 "or" and "/", and matches degrees on their field. Blind review redacts display text only.
 
+Ask your report (`chat/ask.py`, `/api/chat`, `web/components/Chat.tsx`) builds numbered pieces
+for each question: every report posting's verified checks and facts line, the 8 resume lines and
+posting requirement passages closest to the question by embedding, and up to 3 passages from a
+fresh index search for questions that reach past the report. Fit and facts questions are answered
+by code from those pieces. A question whose best similarity is under 0.62 and whose key words appear
+in no piece is declined. Otherwise the model answers under a JSON schema and each sentence is
+checked against the pieces it cites. The browser sends the resume text, the report's postings and
+the previous turn with each question; nothing is stored.
+
 The Next.js site requires sign-in (`api/auth.py`). Four fixed demo accounts, one per role (job
 seeker, recruiter, career advisor, admin), share a password from `DEMO_PASSWORD`, kept only as a
 salted scrypt hash. With `DEMO_PASSWORD_PUBLIC=1` (the default) the password is public: the README
@@ -161,7 +170,8 @@ Docker images still run Streamlit only, which has no sign-in.
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
-| Unit tests | 322 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Unit tests | 336 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Chat answers | Code answers 0.1 to 2.0 s; model answers 2.2 to 6.9 s; off-topic declined in 0.1 to 0.5 s | M3 Pro, `llama3.2:3b` | Nurse and accountant reports, runs of 3 to 6 questions each | 2026-11-16 | Log, [ask-report](engineering-log.md#ask-report) |
 | Recruiter ranking | Same 9 requirements and same order in 2 runs; extraction 2.0 to 2.1 s, ranking 96 ms for 4 resumes | M3 Pro, `llama3.2:3b` | One backend job description, 4 synthetic resumes | 2026-11-16 | Log, [recruiter-mode](engineering-log.md#recruiter-mode) |
 | Version compare | 4 ms to parse the new file, 35.5 ms to compare 15 requirements in 4 postings | M3 Pro | Accountant resume and a revised copy | 2026-11-16 | Log, [version-compare](engineering-log.md#version-compare) |
 | Interview questions from the model that passed the checks | 9 of 10, 7 of 7, 2 of 2, 1 of 1; 2.2 to 6.2 s | M3 Pro, `llama3.2:3b` | Backend (2 runs), nurse, accountant; closest posting | 2026-11-16 | Log, [interview-prep](engineering-log.md#interview-prep) |
@@ -215,7 +225,8 @@ Docker images still run Streamlit only, which has no sign-in.
 | End-to-end time per resume, Docker on CPU | 57.0 s median (35.5 to 72.3 s), 3 resumes, 6 runs | Log, [benchmark](engineering-log.md#benchmark) |
 | Share of time spent on generation, native | about 96% | Log, [benchmark](engineering-log.md#benchmark) |
 | Search and fusion per resume, native | 0.08 to 0.23 s (median per resume) | Log, [benchmark](engineering-log.md#benchmark) |
-| Unit tests | 322 passing | `pytest -q`, 2026-11-16 |
+| Unit tests | 336 passing | `pytest -q`, 2026-11-16 |
+| Chat relevance cutoff 0.62 | On-topic questions 0.644 to 0.781 (6), off-topic 0.492 to 0.581 (5) | Best question-to-piece cosine similarity on the nurse report, 2026-11-16 |
 | Postings with a level / a salary / only "United States" as location | 75% / 31% / 7% of 107,526 | `posting_details.json` joined with the index, 2026-11-16 |
 | Role report caches | Titles 12.3 s, background terms 6.7 s, built once | Log, [role-report](engineering-log.md#role-report), 2026-11-16 |
 

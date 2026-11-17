@@ -20,6 +20,8 @@ Endpoints:
                            (JSON from the report): which requirements the edit changed
     POST /api/rank         form "job_text", multipart "files" (up to 10 resumes), form "blind":
                            candidates ranked against the job's requirements (recruiter, admin)
+    POST /api/chat         JSON {"question", "resume_text", "jobs", "history"}: a question about the
+                           report, answered from the resume and its postings with sources
     GET  /api/filter-options  choices and counts for the search filters
     GET  /api/roles        ?q= title suggestions for the role report
     POST /api/role-report  form "role", optional multipart "file": what postings with
@@ -56,6 +58,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, Uploa
 from pydantic import BaseModel
 
 from resumematch.api import auth
+from resumematch.chat import ask
 from resumematch.frontend.render import highlight_spans
 from resumematch.generation import compare as version_compare
 from resumematch.generation import interview, tailor
@@ -566,6 +569,109 @@ def rank_candidates(job_text: str = Form(...), files: list[UploadFile] = File(..
     if not any(r.issue is None and not r.soft for r in requirements):
         raise _error(422, "no_requirements", "No checkable requirements were found in that job description.")
     return ranking_to_json(requirements, recruit.rank_candidates(requirements, resumes), failed, blind)
+
+
+class ChatRequirement(BaseModel):
+    text: str
+    status: str = "not_found"
+    resume_quote: str | None = None
+    soft: bool = False
+
+
+class ChatJob(BaseModel):
+    job_id: str
+    closest: bool = False
+    requirements: list[ChatRequirement] = []
+
+
+class ChatTurn(BaseModel):
+    question: str
+    answer: str
+
+
+class ChatBody(BaseModel):
+    question: str
+    resume_text: str
+    jobs: list[ChatJob] = []
+    history: list[ChatTurn] = []
+
+
+MAX_CHAT_JOBS = 6
+
+
+@cache
+def _embedder():
+    from resumematch.retrieval.embedder import Embedder
+    return Embedder(model_name=os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"))
+
+
+def _chat_postings(jobs: list[ChatJob], resume_text: str, store: VectorStore) -> list[ask.ReportPosting]:
+    """The report's postings rebuilt from the index. The browser's checks are
+    kept only as far as they hold: "shown" needs its quote in the resume."""
+    details = _load_json(str(DETAILS_PATH)) or {}
+    resume = f" {ask._normalize(resume_text)} "
+    out = []
+    for job in jobs[:MAX_CHAT_JOBS]:
+        chunks = store.get_posting_chunks(job.job_id)
+        if not chunks:
+            continue
+        checks = []
+        for r in job.requirements[:30]:
+            if r.soft or not r.text.strip():
+                continue
+            quote = (r.resume_quote or "").strip()
+            held = r.status == "shown" and quote and f" {ask._normalize(quote)} " in resume
+            status = "shown" if held else ("partly" if r.status == "partly" else "not_found")
+            checks.append((r.text.strip()[:150], status, quote if held else None))
+        out.append(ask.ReportPosting(
+            job.job_id, chunks[0]["title"], chunks[0].get("company_name"), chunks[0].get("job_posting_url"),
+            "\n".join(c["text"] for c in requirement_excerpt(chunks)), details.get(job.job_id), job.closest, checks))
+    return out
+
+
+def chat_to_json(a: ask.ChatAnswer) -> dict:
+    cited = {i for s in a.shown for i in s.sources}
+    suffix = {"check": ", report check", "facts": ", facts"}
+    def label(p: ask.Piece) -> str:
+        return "Your resume" if p.kind == "resume" else f"{p.name or p.label}{suffix.get(p.kind, '')}"
+    return {
+        "answer": [{"text": s.text, "sources": s.sources} for s in a.shown],
+        "message": ask.NO_ANSWER if a.no_answer and not a.shown else None,
+        "no_answer": a.no_answer,
+        "by_code": a.by_code,
+        "sources": [{"id": p.id, "kind": p.kind, "label": label(p), "text": p.text, "url": p.url}
+                    for p in a.pieces if p.id in cited],
+        "removed": [{"text": s.text, "issue": s.issue} for s in a.sentences if s.issue],
+    }
+
+
+@app.post("/api/chat")
+def chat(body: ChatBody, _user: auth.User = Depends(RESUME_CHECK_ROLES)) -> dict:
+    """Nothing is stored: the browser sends the resume text, the report's
+    postings and the previous turn with each question."""
+    question = " ".join(body.question.split())
+    if len(question) < 3 or len(question) > ask.MAX_QUESTION_CHARS:
+        raise _error(400, "bad_question", f"Ask a question of up to {ask.MAX_QUESTION_CHARS} characters.")
+    if not body.resume_text.strip() or len(body.resume_text) > MAX_RESUME_CHARS:
+        raise _error(400, "bad_resume", "Run the resume check again, then try this.")
+    if not _busy.acquire(blocking=False):
+        raise _error(429, "busy", "Another request is running right now. Try again in a minute.")
+    try:
+        store = VectorStore(persist_dir=resolve_persist_dir(load_config()))
+        postings = _chat_postings(body.jobs, body.resume_text, store)
+        history = [(t.question, t.answer) for t in body.history[-ask.MAX_HISTORY:]]
+        result = ask.answer(question, body.resume_text, postings, OllamaClient(), _embedder().embed,
+                            search=lambda vector: store.query(vector, top_k=12), history=history)
+        return chat_to_json(result)
+    except requests.ConnectionError:
+        raise _error(503, "model_down", "The local model isn't running. Start Ollama and try again.") from None
+    except ValueError:
+        raise _error(502, "bad_model_output", "The model's answer couldn't be used, even after a retry. Try again.") from None
+    except Exception as err:  # noqa: BLE001 - type and stack only, never the message (it could quote the resume)
+        log.error("chat failed: %s\n%s", type(err).__name__, "".join(traceback.format_tb(err.__traceback__)))
+        raise _error(500, "internal", "Something went wrong. Try again.") from None
+    finally:
+        _busy.release()
 
 
 @app.post("/api/analyze")

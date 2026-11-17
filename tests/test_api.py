@@ -345,3 +345,48 @@ def test_rank_input_limits(monkeypatch):
     assert c.post("/api/rank", data={"job_text": "too short"}, files=[("files", ("a.pdf", b"x"))]).json()["detail"]["code"] == "bad_job"
     many = [("files", (f"{i}.pdf", b"x")) for i in range(11)]
     assert c.post("/api/rank", data={"job_text": JOB}, files=many).json()["detail"]["code"] == "bad_files"
+
+
+def _chat_setup(monkeypatch, answer):
+    _fake_tailor_store(monkeypatch, [{"text": "ACLS required for this unit.", "title": "RN ICU", "company_name": "Acme",
+                                      "section": "description", "job_posting_url": "https://x/7"}])
+    monkeypatch.setattr(api, "_embedder", lambda: type("E", (), {"embed": staticmethod(lambda texts: [[1.0] for _ in texts])})())
+    seen = {}
+
+    def fake(question, resume, postings, client, embed, search=None, history=None):
+        seen.update(question=question, postings=postings, history=history)
+        return answer
+    monkeypatch.setattr(api.ask, "answer", fake)
+    return seen
+
+
+def test_chat_returns_checked_sentences_with_their_sources(monkeypatch):
+    from resumematch.chat.ask import ChatAnswer, Piece, Sentence
+    pieces = [Piece(1, "resume", "Your resume", "ACLS, BLS, PALS"),
+              Piece(2, "check", "Posting 1", "shown on your resume: ACLS.", "https://x/7", "RN ICU at Acme"),
+              Piece(3, "posting", "Posting 1", "unused", "https://x/7", "RN ICU at Acme")]
+    seen = _chat_setup(monkeypatch, ChatAnswer(
+        [Sentence("Your resume lists ACLS.", [1, 2]), Sentence("It needs Epic.", [3], issue="mentions Epic")], pieces))
+    body = TestClient(api.app).post("/api/chat", json={
+        "question": "  Do I have   ACLS? ", "resume_text": RESUME,
+        "jobs": [{"job_id": "7", "closest": True, "requirements": [
+            {"text": "ACLS", "status": "shown", "resume_quote": "ACLS, BLS"},
+            {"text": "ECMO", "status": "shown", "resume_quote": "ECMO for 3 years"},      # quote not in the resume
+            {"text": "Teamwork", "status": "not_found", "soft": True}]}],
+        "history": [{"question": "q1", "answer": "a1"}, {"question": "q2", "answer": "a2"}]}).json()
+    assert seen["question"] == "Do I have ACLS?" and seen["history"] == [("q2", "a2")]
+    post = seen["postings"][0]
+    assert post.closest and post.label == "RN ICU at Acme"
+    assert post.checks == [("ACLS", "shown", "ACLS, BLS"), ("ECMO", "not_found", None)]
+    assert body["answer"] == [{"text": "Your resume lists ACLS.", "sources": [1, 2]}]
+    assert [s["label"] for s in body["sources"]] == ["Your resume", "RN ICU at Acme, report check"]
+    assert body["removed"] == [{"text": "It needs Epic.", "issue": "mentions Epic"}] and body["message"] is None
+
+
+def test_chat_no_answer_and_bad_input(monkeypatch):
+    from resumematch.chat.ask import NO_ANSWER, ChatAnswer
+    _chat_setup(monkeypatch, ChatAnswer([], [], no_answer=True))
+    c = TestClient(api.app)
+    assert c.post("/api/chat", json={"question": "What about ECMO?", "resume_text": RESUME}).json()["message"] == NO_ANSWER
+    assert c.post("/api/chat", json={"question": "a", "resume_text": RESUME}).json()["detail"]["code"] == "bad_question"
+    assert c.post("/api/chat", json={"question": "x" * 500, "resume_text": RESUME}).status_code == 400

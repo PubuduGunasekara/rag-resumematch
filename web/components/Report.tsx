@@ -5,6 +5,7 @@ import type { Job, Report, Requirement } from "@/lib/types";
 import { FilterNote } from "@/components/Filters";
 import Tailor from "@/components/Tailor";
 import Compare from "@/components/Compare";
+import Chat from "@/components/Chat";
 
 const STATUS: Record<Requirement["status"], string> = { shown: "Shown", partly: "Partly shown", not_found: "Not found" };
 
@@ -172,6 +173,8 @@ export default function ReportView({ report, fileName }: { report: Report; fileN
           ))
         )}
       </div>
+
+      <Chat report={report} />
 
       <Compare report={report} />
 

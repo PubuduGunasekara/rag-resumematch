@@ -19,6 +19,7 @@ edit, not from the model answering differently. It can differ from the
 model-based report, and the page says so.
 """
 
+import re
 from dataclasses import dataclass, field
 
 from resumematch.generation.gap_analysis import _found, _normalize, key_terms
@@ -35,9 +36,35 @@ def _lines(text: str) -> list[str]:
     return raw + [f"{a} {b}" for a, b in zip(raw, raw[1:], strict=False)]   # wrapped lines
 
 
+_AMOUNT = re.compile(r"^\d+\+?$")                       # "5+" in "5+ years of Java"
+_ALTERNATIVES = re.compile(r"\s+or\s+|\s*/\s*", re.IGNORECASE)
+
+
+# A degree requirement is matched on its field: "Bachelor's degree in Computer
+# Science" by "B.S. Computer Science". The level is not distinguished.
+_DEGREE_WORDS = {"degree", "degrees", "bachelor", "bachelors", "master", "masters", "bs", "ba", "ms", "bsc", "msc"}
+
+
+def terms_of(requirement: str) -> list[str]:
+    terms = [t for t in key_terms(requirement) if not _AMOUNT.match(t)]
+    field = [t for t in terms if t not in _DEGREE_WORDS]
+    return field if field and len(field) < len(terms) else terms
+
+
 def check(requirement: str, text: str, lines: list[str] | None = None) -> tuple[str, str | None]:
-    """(status, evidence line) for one requirement against one resume version."""
-    terms = key_terms(requirement)
+    """(status, evidence line) for one requirement against one resume version.
+    "Bash or Python scripting" is met by either: each alternative is checked
+    on its own, and the best result counts."""
+    parts = [p for p in _ALTERNATIVES.split(requirement) if terms_of(p)]
+    if len(parts) > 1:
+        lines = lines if lines is not None else _lines(text)
+        results = [_check_one(p, text, lines) for p in parts]
+        return max(results, key=lambda r: _RANK[r[0]])
+    return _check_one(requirement, text, lines)
+
+
+def _check_one(requirement: str, text: str, lines: list[str] | None = None) -> tuple[str, str | None]:
+    terms = terms_of(requirement)
     if not terms:
         return "not_found", None
     best, best_n = None, 0

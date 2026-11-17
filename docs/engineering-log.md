@@ -40,6 +40,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 30 | 2026-11-16 | Feature | [Resume bullet rewrites and a cover letter, checked in code](#tailoring) | Adopted |
 | 31 | 2026-11-16 | Feature | [Interview prep from the report](#interview-prep) | Adopted |
 | 32 | 2026-11-16 | Feature | [Comparing a revised resume against the same postings](#version-compare) | Adopted |
+| 33 | 2026-11-16 | Feature | [Recruiter mode: ranking resumes for a job, with blind review](#recruiter-mode) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -1055,6 +1056,60 @@ the page says so.
 **Decision.** Adopted for the resume check roles.
 
 **Evidence.** `tests/test_compare.py`, `tests/test_api.py`
+
+---
+
+<a id="recruiter-mode"></a>
+## 33. Recruiter mode: ranking resumes for a job, with blind review
+
+**Feature, 2026-11-16. Outcome: adopted.**
+
+**Problem.** A recruiter with one job and a stack of resumes wants them ordered by fit, with the
+reason for each, and without names, schools or ages shaping the first read.
+
+**Hypothesis.** One model call to list the job's requirements, then the same lexical check for every
+resume, ranks candidates consistently: the model can't answer differently for different people
+because it never sees the resumes. Redacting only what is displayed keeps the check itself unchanged.
+
+**Method.** `recruit/rank.py` and `recruit/blind.py`. Requirements are kept only if their key terms
+are in a sentence of the description; benefits and employer statements are dropped with the gap
+analysis checks; importance comes from the sentence ("must", "is a plus") or the heading above the
+best-matching line ("Preferred qualifications:"). Candidates are sorted by required shown, then
+unspecified, then preferred, then partial matches (any specific word of a requirement), then upload
+order. Tested on an indexed posting (flattened text, no headings), then on a pasted description with
+headings, with the backend Java, data engineer, frontend and accountant resumes, in Python and in
+the browser as the recruiter.
+
+**Results.** Problems found and fixed, in order:
+
+| Run | What happened | Fix |
+|---|---|---|
+| Indexed posting | Java resume ranked 3rd of 4, nothing shown | "5+" counted as a word; "Bash or Python" needed both; one matching word didn't count as partial |
+| Pasted description | "PostgreSQL" partly shown for a resume listing PostgreSQL | The model wrote "PostgreSQL relational database" for "PostgreSQL or another relational database"; resumes are now checked against the description's own line |
+| Pasted description | "5+ years of Java" and "AWS (EC2, S3, SQS)" labeled neither required nor preferred | The title line matched first, and the capitals line was taken for a heading; the best-matching line is used and a capitals heading must be words only |
+| Pasted description | The check line for "5+ years of Java" was the title | The source line is the sentence holding the most key terms, not the shortest |
+| Blind review | "Maria Delgado, RN" became "[location]" | The name is replaced before city and state |
+| Degree | "Bachelor's degree in Computer Science" not met by "B.S. Computer Science" | Degrees are matched on their field (the level is not distinguished) |
+
+Final runs on the pasted description, model included:
+
+| Run | Requirements kept | Required / preferred | Order (required shown, preferred shown) | Model | Ranking |
+|---|---|---|---|---|---|
+| 1 | 9 of 9 | 6 / 3 | backend Java (4, 2), data engineer (2, 0), frontend (0, 0), accountant (0, 0) | 2.1 s | 96 ms |
+| 2 | 9 of 9 | 6 / 3 | same | 2.0 s | 96 ms |
+
+In the browser the whole request took 2.5 s. With blind review, the first candidate's checklist
+showed its education line as "B.S. Computer Science, [school] ([year])" and no name or contact
+detail; "Reveal names" showed the four names and files. On the three resumes tested in Python, no
+word of the candidate's name was left in the redacted text.
+
+Limits: matching is by wording, so "Docker and CI/CD pipelines" is only partly met by Docker and
+Jenkins; blind review can't remove a name that isn't on the first line or a school outside the
+education section; the names are sent to the browser so they can be revealed, and hidden there.
+
+**Decision.** Adopted for the recruiter and admin roles; blind review on by default.
+
+**Evidence.** `tests/test_recruit.py`, `tests/test_api.py`, `tests/test_auth.py`
 
 ---
 

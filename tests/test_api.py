@@ -299,3 +299,49 @@ def test_compare_refuses_bad_input(client):
     assert r.status_code == 400 and r.json()["detail"]["code"] == "bad_jobs"
     r = client.post("/api/compare", files={"file": ("v2.txt", b"x")}, data={"old_resume_text": RESUME, "jobs": "[]"})
     assert r.status_code == 415
+
+
+def _as(role):
+    user = auth.DEMO_USERS[f"{role}@example.com"]
+    api.app.dependency_overrides[api.RECRUIT_ROLES] = lambda: user
+
+
+JOB = ("Senior Backend Engineer\n\nRequirements:\n- 5+ years of Java experience\n- Kafka in production\n\n"
+       "Preferred qualifications:\n- Kubernetes\n\nWe build payment systems for banks and want people who own "
+       "their services end to end, from design to on-call.")
+
+
+def test_rank_orders_candidates_and_blinds_names(monkeypatch):
+    from resumematch.recruit.rank import JobRequirement
+    _as("recruiter")
+    texts = {"ana.pdf": "Ana Silva\nJava services on Kafka. Ana led on-call.\nKubernetes.", "ben.pdf": "Ben Okoro\nPython."}
+    monkeypatch.setattr(api, "_resume_text", lambda suffix, data, allow_unusual: texts[data.decode()])
+    monkeypatch.setattr(api.recruit, "extract_requirements", lambda job, client: [
+        JobRequirement("Java experience", "required"), JobRequirement("Kafka", "required"),
+        JobRequirement("Kubernetes", "preferred"), JobRequirement("Rust", "unspecified", issue="not in the job description")])
+    body = TestClient(api.app).post("/api/rank", data={"job_text": JOB, "blind": "true"},
+                                    files=[("files", ("ben.pdf", b"ben.pdf")), ("files", ("ana.pdf", b"ana.pdf"))]).json()
+    first, second = body["candidates"]
+    assert first["label"] == "Candidate 1" and first["identity"]["file"] == "ana.pdf"
+    assert first["counts"]["required"] == {"shown": 2, "total": 2} and second["counts"]["required"]["shown"] == 0
+    evidence = [c["evidence"] for c in first["checklist"] if c["evidence"]]
+    assert evidence and all("Ana" not in e for e in evidence)
+    assert body["requirements"][3]["issue"] == "not in the job description"
+
+
+def test_rank_reports_unreadable_files_without_failing_the_rest(monkeypatch):
+    from resumematch.recruit.rank import JobRequirement
+    _as("admin")
+    monkeypatch.setattr(api, "_resume_text", lambda *a, **k: "Ana Silva\nKafka.")
+    monkeypatch.setattr(api.recruit, "extract_requirements", lambda job, client: [JobRequirement("Kafka", "required")])
+    body = TestClient(api.app).post("/api/rank", data={"job_text": JOB, "blind": "true"},
+                                    files=[("files", ("a.pdf", b"x")), ("files", ("notes.txt", b"x"))]).json()
+    assert len(body["candidates"]) == 1 and body["failed"] == [{"file": "File 2", "message": "Upload a PDF or Word (.docx) file."}]
+
+
+def test_rank_input_limits(monkeypatch):
+    _as("recruiter")
+    c = TestClient(api.app)
+    assert c.post("/api/rank", data={"job_text": "too short"}, files=[("files", ("a.pdf", b"x"))]).json()["detail"]["code"] == "bad_job"
+    many = [("files", (f"{i}.pdf", b"x")) for i in range(11)]
+    assert c.post("/api/rank", data={"job_text": JOB}, files=many).json()["detail"]["code"] == "bad_files"

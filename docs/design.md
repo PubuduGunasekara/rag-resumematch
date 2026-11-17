@@ -128,6 +128,13 @@ requirements and checks both resume versions with one lexical rule: shown when o
 consecutive lines) holds all key terms of a requirement with one or two of them, two thirds with
 more; that line is the evidence. No search and no model, so it needs no busy lock.
 
+Recruiter mode (`recruit/rank.py`, `recruit/blind.py`, `/api/rank`, `web/app/recruit/`) makes one
+model call for the job's requirements, keeps those whose key terms are in a sentence of the
+description, takes importance from the sentence cue or the heading above the best-matching line, and
+stores that line as the text resumes are checked against when it has at most 14 words. Every resume
+then goes through `generation/compare.check`, which ignores amounts ("5+"), accepts either side of
+"or" and "/", and matches degrees on their field. Blind review redacts display text only.
+
 The Next.js site requires sign-in (`api/auth.py`). Four fixed demo accounts, one per role (job
 seeker, recruiter, career advisor, admin), share a password from `DEMO_PASSWORD`, kept only as a
 salted scrypt hash. With `DEMO_PASSWORD_PUBLIC=1` (the default) the password is public: the README
@@ -154,7 +161,8 @@ Docker images still run Streamlit only, which has no sign-in.
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
-| Unit tests | 310 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Unit tests | 322 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Recruiter ranking | Same 9 requirements and same order in 2 runs; extraction 2.0 to 2.1 s, ranking 96 ms for 4 resumes | M3 Pro, `llama3.2:3b` | One backend job description, 4 synthetic resumes | 2026-11-16 | Log, [recruiter-mode](engineering-log.md#recruiter-mode) |
 | Version compare | 4 ms to parse the new file, 35.5 ms to compare 15 requirements in 4 postings | M3 Pro | Accountant resume and a revised copy | 2026-11-16 | Log, [version-compare](engineering-log.md#version-compare) |
 | Interview questions from the model that passed the checks | 9 of 10, 7 of 7, 2 of 2, 1 of 1; 2.2 to 6.2 s | M3 Pro, `llama3.2:3b` | Backend (2 runs), nurse, accountant; closest posting | 2026-11-16 | Log, [interview-prep](engineering-log.md#interview-prep) |
 | Bullet rewrites that passed the checks | 3, 5 and 4 of 6 (backend, nurse, accountant); 6.5 to 10.7 s each | M3 Pro, `llama3.2:3b` | One run per resume, closest posting | 2026-11-16 | Log, [tailoring](engineering-log.md#tailoring) |
@@ -207,7 +215,7 @@ Docker images still run Streamlit only, which has no sign-in.
 | End-to-end time per resume, Docker on CPU | 57.0 s median (35.5 to 72.3 s), 3 resumes, 6 runs | Log, [benchmark](engineering-log.md#benchmark) |
 | Share of time spent on generation, native | about 96% | Log, [benchmark](engineering-log.md#benchmark) |
 | Search and fusion per resume, native | 0.08 to 0.23 s (median per resume) | Log, [benchmark](engineering-log.md#benchmark) |
-| Unit tests | 310 passing | `pytest -q`, 2026-11-16 |
+| Unit tests | 322 passing | `pytest -q`, 2026-11-16 |
 | Postings with a level / a salary / only "United States" as location | 75% / 31% / 7% of 107,526 | `posting_details.json` joined with the index, 2026-11-16 |
 | Role report caches | Titles 12.3 s, background terms 6.7 s, built once | Log, [role-report](engineering-log.md#role-report), 2026-11-16 |
 

@@ -229,3 +229,8 @@ details.how ul, details.how ol { margin: 10px 0 0; padding-left: 20px; color: va
 .compare-job li.better { color: var(--moss); }
 .compare-job li.worse { color: var(--brick); }
 .compare-job .quote { display: block; color: var(--graphite); font-size: 13px; }
+.role-form textarea {
+  font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid var(--hairline-strong);
+  background: #fff; color: var(--ink); border-radius: 2px; width: 100%; resize: vertical;
+}
+.role-form label.options { display: flex; align-items: center; gap: 10px; }

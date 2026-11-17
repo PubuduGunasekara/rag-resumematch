@@ -10,11 +10,12 @@ export interface User { email: string; name: string; role: Role; role_label: str
 export const PAGES: { href: string; label: string; roles: Role[] }[] = [
   { href: "/", label: "Check a resume", roles: ["seeker", "advisor", "admin"] },
   { href: "/role", label: "Explore a role", roles: ["seeker", "recruiter", "advisor", "admin"] },
+  { href: "/recruit", label: "Rank candidates", roles: ["recruiter", "admin"] },
   { href: "/admin", label: "Admin", roles: ["admin"] },
 ];
 
 export function homeFor(role: Role): string {
-  return role === "admin" ? "/admin" : role === "recruiter" ? "/role" : "/";
+  return role === "admin" ? "/admin" : role === "recruiter" ? "/recruit" : "/";
 }
 
 export function canOpen(user: User | null, href: string): boolean {

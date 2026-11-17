@@ -23,7 +23,7 @@ Built with Claude Code assistance; the design, experiments and measurements are 
 | End-to-end time per resume | 13.8 s median (11.4 to 19.4 s) | M3 Pro laptop, Ollama on the Metal GPU, 3 resumes, 9 runs |
 | End-to-end, everything in Docker on CPU | 57 s median (35.5 to 72.3 s) | Docker Desktop on the same Mac (11 CPUs, 8 GB), 3 resumes, 6 runs |
 | Where the time goes | About 96% is the model writing its answer; search and fusion take 0.08 to 0.23 s | Same native runs, `scripts/benchmark.py` |
-| Tests | 310 passing | No model, index or network needed |
+| Tests | 322 passing | No model, index or network needed |
 | Typo correction, top-10 overlap with the clean result at 10% typos | 0.68 to 0.82 without correction, 0.88 to 0.98 with | 4 resumes, 5 seeds each; identical across repeated runs |
 | Typo correction, false corrections on clean resumes | 6 words in 35 files (45 before the name and word-form rules) | 35 files: the synthetic resumes in `eval/resumes/` and one test resume |
 | Vector search recall against exact search | 0.972 mean recall@30 (0.791 before tuning) | 17 resumes, 91 sections |
@@ -136,6 +136,20 @@ than two), so a change comes from the edit rather than from the model answering 
 the new file and comparing took about 40 ms.
 ([version-compare](docs/engineering-log.md#version-compare))
 
+### Recruiter mode
+
+A recruiter pastes a job description and uploads up to 10 resumes. The model lists the job's
+requirements once; code keeps only those really in the description and reads "required" or
+"preferred" from its wording or the heading above. Then every resume is checked against the same
+requirements by the same rule, with no model per candidate, so the model answering differently can't
+favor anyone. Candidates are ranked by required requirements shown, then preferred, then partial
+matches, with the evidence line for each. Blind review, on by default, removes names, contact
+details, links, the header location, school names and graduation years from everything shown, and
+labels candidates by rank; names appear only after "Reveal names". With one backend job description
+and four resumes, two runs gave the same 9 requirements and the same order, in about 2 s for the
+model and under 0.1 s for the ranking.
+([recruiter-mode](docs/engineering-log.md#recruiter-mode))
+
 ## What went wrong first
 
 Each of these is a real failure I measured, with the fix and the numbers in the
@@ -205,7 +219,7 @@ The site needs a sign-in. There is one demo account per role, and all four use t
 | Account | Role | Can use |
 |---|---|---|
 | seeker@example.com | Job seeker | Resume check, role report |
-| recruiter@example.com | Recruiter | Role report |
+| recruiter@example.com | Recruiter | Rank candidates (blind review), role report |
 | advisor@example.com | Career advisor | Resume check, role report |
 | admin@example.com | Admin | Everything, plus an overview of accounts and recent sign-ins |
 
@@ -225,7 +239,7 @@ The same steps are available as `make` targets:
 | Command | What it does |
 |---|---|
 | `make setup` | Create `.venv` and install everything |
-| `make test` | Run the 310 unit tests (no model or index needed) |
+| `make test` | Run the 322 unit tests (no model or index needed) |
 | `make lint` | Run ruff with the rules in `pyproject.toml` |
 | `make sample-index` | Download the prebuilt 2,000-posting sample index |
 | `make index-small` | Build a 2,000-posting index yourself (needs Kaggle credentials) |
@@ -303,6 +317,7 @@ src/resumematch/
   generation/    ollama_client.py, gap_analysis.py, job_report.py, text_clean.py, tailor.py, interview.py,
                  compare.py
   market/        role_profile.py (role report: terms across all postings with one title)
+  recruit/       rank.py (rank resumes for a job description), blind.py (blind review)
   frontend/      streamlit_app.py, render.py
   api/           app.py (FastAPI for the Next.js site), auth.py (sign-in and roles)
   pipeline.py    runs steps 2 to 9 for one resume

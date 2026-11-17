@@ -18,6 +18,8 @@ Endpoints:
                            posting, each with what on the resume to draw on
     POST /api/compare      multipart "file" (revised resume), form "old_resume_text" and "jobs"
                            (JSON from the report): which requirements the edit changed
+    POST /api/rank         form "job_text", multipart "files" (up to 10 resumes), form "blind":
+                           candidates ranked against the job's requirements (recruiter, admin)
     GET  /api/filter-options  choices and counts for the search filters
     GET  /api/roles        ?q= title suggestions for the role report
     POST /api/role-report  form "role", optional multipart "file": what postings with
@@ -72,6 +74,8 @@ from resumematch.pipeline import (
     run_pipeline,
     validate_resume,
 )
+from resumematch.recruit import blind as blind_review
+from resumematch.recruit import rank as recruit
 from resumematch.retrieval import filters as search_filters
 from resumematch.retrieval.vector_store import VectorStore
 
@@ -491,6 +495,77 @@ def compare_versions(file: UploadFile = File(...), old_resume_text: str = Form(.
     except ResumeRejected as rejected:
         raise _error(422, rejected.code, rejected.message, rejected.soft) from None
     return comparison_to_json(version_compare.compare(old_resume_text, new_text, job_list))
+
+
+RECRUIT_ROLES = auth.require_role("recruiter", "admin")
+MAX_CANDIDATES = 10
+MAX_JOB_CHARS = 20_000
+
+
+def ranking_to_json(requirements: list[recruit.JobRequirement], ranked: list[recruit.CandidateResult],
+                    failed: list[dict], blind: bool) -> dict:
+    kept = [r for r in requirements if r.issue is None and not r.soft]
+    totals = {imp: sum(1 for r in kept if r.importance == imp) for imp in ("required", "unspecified", "preferred")}
+    candidates = []
+    for rank, c in enumerate(ranked, 1):
+        def shown(text: str | None, name: str | None = c.name) -> str | None:
+            return blind_review.blind_line(text, name) if blind else text
+        candidates.append({
+            "label": f"Candidate {rank}",
+            # Sent so the recruiter can reveal names after ranking; the page hides them in blind mode.
+            "identity": {"name": c.name, "file": c.file_name},
+            "counts": {imp: {"shown": c.count(imp), "total": totals[imp]} for imp in totals},
+            "partly": c.partly,
+            "checklist": [{"requirement": r.text, "importance": r.importance, "soft": r.soft, "status": st,
+                           "evidence": shown(ev)} for r, st, ev in c.checklist],
+        })
+    return {
+        "blind": blind,
+        "requirements": [{"text": r.text, "importance": r.importance, "soft": r.soft, "issue": r.issue} for r in requirements],
+        "candidates": candidates,
+        "failed": failed,
+        "note": "Every resume is checked against the same requirements by the same wording rule, with no model, so "
+                "a skill written differently counts as not shown. Ranked by required requirements shown, then "
+                "others, then preferred, then partial matches.",
+    }
+
+
+@app.post("/api/rank")
+def rank_candidates(job_text: str = Form(...), files: list[UploadFile] = File(...), blind: bool = Form(True),
+                    _user: auth.User = Depends(RECRUIT_ROLES)) -> dict:
+    """One model call (the job's requirements), then the same lexical check for
+    every resume. Uploaded files are deleted as soon as their text is read."""
+    job_text = job_text.strip()
+    if len(job_text) < recruit.MIN_JOB_CHARS or len(job_text) > MAX_JOB_CHARS:
+        raise _error(400, "bad_job", f"Paste the full job description ({recruit.MIN_JOB_CHARS:,} to {MAX_JOB_CHARS:,} characters).")
+    if not files or len(files) > MAX_CANDIDATES:
+        raise _error(400, "bad_files", f"Upload 1 to {MAX_CANDIDATES} resumes.")
+    resumes, failed = [], []
+    for n, f in enumerate(files, 1):
+        label = f"File {n}" if blind else (f.filename or f"File {n}")
+        try:
+            suffix, data = _read_upload(f)
+            text = _resume_text(suffix, data, allow_unusual=False)
+            resumes.append((f.filename or f"File {n}", text, blind_review.candidate_name(text)))
+        except HTTPException as err:
+            failed.append({"file": label, "message": err.detail["message"]})
+        except ResumeRejected as rejected:
+            failed.append({"file": label, "message": rejected.message})
+    if not resumes:
+        raise _error(422, "no_readable_resumes", "None of the files could be read as a resume.")
+    if not _busy.acquire(blocking=False):
+        raise _error(429, "busy", "Another request is running right now. Try again in a minute.")
+    try:
+        requirements = recruit.extract_requirements(job_text, OllamaClient())
+    except requests.ConnectionError:
+        raise _error(503, "model_down", "The local model isn't running. Start Ollama and try again.") from None
+    except ValueError:
+        raise _error(502, "bad_model_output", "The model's answer couldn't be used, even after a retry. Try again.") from None
+    finally:
+        _busy.release()
+    if not any(r.issue is None and not r.soft for r in requirements):
+        raise _error(422, "no_requirements", "No checkable requirements were found in that job description.")
+    return ranking_to_json(requirements, recruit.rank_candidates(requirements, resumes), failed, blind)
 
 
 @app.post("/api/analyze")

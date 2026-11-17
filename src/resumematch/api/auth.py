@@ -12,7 +12,7 @@ no CORS set-up. Standard library only.
 
 Roles:
     seeker     checks their own resume, explores roles
-    recruiter  explores roles (candidate ranking comes later)
+    recruiter  ranks candidates for a job description (blind review), explores roles
     advisor    checks students' resumes, explores roles
     admin      everything, plus the admin overview
 
@@ -45,7 +45,7 @@ ROLES = ("seeker", "recruiter", "advisor", "admin")
 ROLE_LABELS = {"seeker": "Job seeker", "recruiter": "Recruiter", "advisor": "Career advisor", "admin": "Admin"}
 ROLE_DESCRIPTIONS = {
     "seeker": "Check a resume against postings, explore roles",
-    "recruiter": "Explore what postings for a role ask for",
+    "recruiter": "Rank candidates for a job, with blind review; explore roles",
     "advisor": "Check students' resumes, explore roles",
     "admin": "Everything, plus accounts and recent sign-ins",
 }

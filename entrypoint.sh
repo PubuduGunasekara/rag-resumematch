@@ -5,7 +5,8 @@
 #      "AutomatedDownload": a fresh clone downloads and indexes the corpus
 #      itself, ~40 min on a laptop CPU)
 #   3. write posting details (location, pay) if missing
-#   4. start Streamlit
+#   4. start the service named by APP_MODE: "api" (the JSON API the Next.js
+#      site talks to) or "streamlit" (the default, the local developer app)
 #
 # The index (./chroma_db) and its vocabulary/boilerplate files
 # (./data/processed) are bind-mounted from the host, so an index built
@@ -32,6 +33,11 @@ fi
 # existed won't have it. Seconds, and optional: the app works without it.
 if [ ! -f data/processed/posting_details.json ]; then
   python scripts/build_posting_details.py || echo "Skipping posting details (dataset not available)."
+fi
+
+if [ "${APP_MODE:-streamlit}" = "api" ]; then
+  # One worker: the API serves one analysis at a time by design (see api/app.py).
+  exec uvicorn resumematch.api.app:app --host 0.0.0.0 --port 8000
 fi
 
 exec streamlit run src/resumematch/frontend/streamlit_app.py \

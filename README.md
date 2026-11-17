@@ -350,14 +350,19 @@ gcp/             start.sh, stop.sh for the GPU VM
 
 - **Laptop (what I use):** the app natively or in Docker, with Ollama running natively to use
   the GPU.
-- **Docker:** `docker-compose.local.yml` waits for Ollama, pulls the model if needed and reuses a
-  complete index from the mounted folders, or builds one. It covers the Streamlit app. The image
-  was rebuilt and the pipeline timed inside it; the Streamlit app in the container wasn't re-run
-  after the latest changes.
-- **GPU VM:** `docker-compose.gcp.yml` with `gcp/start.sh` and `gcp/stop.sh` runs it on a GCP VM
-  with a T4 GPU, which costs about $0.50 to $0.55 an hour, or over $350 a month if left running.
-  The index is built locally and copied up, so the VM only pays for inference. This profile has
-  not been run yet.
+- **Docker:** `docker compose -f docker-compose.local.yml up --build` starts Ollama, the API and
+  the Next.js site, then http://localhost:3100 is the full system with sign-in. The API container
+  waits for Ollama, pulls the model if needed and reuses a complete index from the mounted
+  folders, or builds one; it has no public port, and the site proxies to it. Built and run on my
+  Mac with the full index: images built in 2 min 8 s, and sign-in, role checks, a role report
+  (2.3 s), a resume check (23 s, with the Mac's own Ollama) and the chat all worked through the
+  site container. The Streamlit app is still available with `--profile streamlit up app`; it
+  wasn't re-run in a container after these changes.
+  ([docker-site](docs/engineering-log.md#docker-site))
+- **GPU VM:** `docker-compose.gcp.yml` with `gcp/start.sh` and `gcp/stop.sh` runs the same three
+  services on a GCP VM with a T4 GPU, which costs about $0.50 to $0.55 an hour, or over $350 a
+  month if left running. The index is built locally and copied up, so the VM only pays for
+  inference. This profile has not been run yet.
 
 ## Dataset and license
 

@@ -1,5 +1,6 @@
-# App image (Streamlit + pipeline). Ollama runs as its own container
-# (official ollama/ollama image) -- see docker-compose.*.yml.
+# Python image: the pipeline, served either as the JSON API (APP_MODE=api, for
+# the Next.js site in web/) or as the Streamlit app (the default). Ollama runs
+# as its own container (official ollama/ollama image); see docker-compose.*.yml.
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -25,5 +26,5 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 COPY . .
 RUN pip install --no-deps -e . && chmod +x /app/entrypoint.sh
 
-EXPOSE 8501
+EXPOSE 8000 8501
 ENTRYPOINT ["/app/entrypoint.sh"]

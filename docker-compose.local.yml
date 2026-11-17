@@ -1,11 +1,11 @@
 # Local profile: CPU only, small model. Run from the repo root:
 #   docker compose -f docker-compose.local.yml up --build
-# then open http://localhost:8501
+# then open http://localhost:3100 (the site, with sign-in; the API runs behind it).
 #
 # On a Mac, Docker can't use the Metal GPU, so Ollama here runs on CPU --
 # a realistic stand-in for a CPU-only portfolio host. For speed while
 # developing, point the app at Ollama running natively on the host instead:
-#   OLLAMA_HOST_FOR_APP=http://host.docker.internal:11434 docker compose -f docker-compose.local.yml up
+#   OLLAMA_HOST_FOR_APP=http://host.docker.internal:11434 docker compose -f docker-compose.local.yml up api web
 
 services:
   ollama:
@@ -16,13 +16,13 @@ services:
     # compose network, and 11434 on the host is often taken by a native
     # Ollama install.
 
-  app:
+  api:
     build: .
     depends_on:
       - ollama
-    ports:
-      - "8501:8501"
-    environment:
+    # No published port: only the site talks to the API, over the compose network.
+    environment: &app_env
+      - APP_MODE=api
       - OLLAMA_HOST=${OLLAMA_HOST_FOR_APP:-http://ollama:11434}
       - OLLAMA_MODEL=llama3.2:3b
       - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
@@ -32,10 +32,43 @@ services:
       - KAGGLE_USERNAME=${KAGGLE_USERNAME:-}
       - KAGGLE_KEY=${KAGGLE_KEY:-}
       - BUILD_INDEX_ARGS=${BUILD_INDEX_ARGS:-}   # e.g. "--limit 2000" for a quick first run
-    volumes:
+      # Sign-in (see .env.example). The demo password is public by default.
+      - DEMO_PASSWORD=${DEMO_PASSWORD:-resumematch-demo}
+      - DEMO_PASSWORD_PUBLIC=${DEMO_PASSWORD_PUBLIC:-1}
+      - SESSION_SECRET=${SESSION_SECRET:-}
+      - COOKIE_SECURE=${COOKIE_SECURE:-0}
+    volumes: &app_volumes
       - ./chroma_db:/app/chroma_db
       - ./data/processed:/app/data/processed
       - ./data/raw:/app/data/raw
+
+  web:
+    build: ./web
+    depends_on:
+      - api
+    ports:
+      - "3100:3100"
+
+  # The Streamlit developer app, without sign-in. Not started by default:
+  #   docker compose -f docker-compose.local.yml --profile streamlit up app
+  app:
+    profiles: ["streamlit"]
+    build: .
+    depends_on:
+      - ollama
+    ports:
+      - "8501:8501"
+    environment:
+      - APP_MODE=streamlit
+      - OLLAMA_HOST=${OLLAMA_HOST_FOR_APP:-http://ollama:11434}
+      - OLLAMA_MODEL=llama3.2:3b
+      - EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
+      - CHROMA_PERSIST_DIR=/app/chroma_db
+      - KAGGLEHUB_CACHE=/app/data/raw/kagglehub
+      - KAGGLE_USERNAME=${KAGGLE_USERNAME:-}
+      - KAGGLE_KEY=${KAGGLE_KEY:-}
+      - BUILD_INDEX_ARGS=${BUILD_INDEX_ARGS:-}
+    volumes: *app_volumes
 
 volumes:
   ollama_models:

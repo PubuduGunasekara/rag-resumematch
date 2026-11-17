@@ -20,13 +20,12 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-  app:
+  api:
     build: .
     depends_on:
       - ollama
-    ports:
-      - "8501:8501"
     environment:
+      - APP_MODE=api
       - OLLAMA_HOST=http://ollama:11434
       # llama3.2:3b was more accurate AND faster than llama3.1:8b in every
       # measurement so far (docs/design.md); switch to 8b only if a GPU
@@ -37,10 +36,24 @@ services:
       - KAGGLEHUB_CACHE=/app/data/raw/kagglehub
       - KAGGLE_USERNAME=${KAGGLE_USERNAME:-}
       - KAGGLE_KEY=${KAGGLE_KEY:-}
+      # Sign-in (see .env.example). Set SESSION_SECRET on the VM so sign-ins survive
+      # restarts, and COOKIE_SECURE=1 once the site is served over HTTPS.
+      - DEMO_PASSWORD=${DEMO_PASSWORD:-resumematch-demo}
+      - DEMO_PASSWORD_PUBLIC=${DEMO_PASSWORD_PUBLIC:-1}
+      - SESSION_SECRET=${SESSION_SECRET:-}
+      - COOKIE_SECURE=${COOKIE_SECURE:-0}
     volumes:
       - ./chroma_db:/app/chroma_db
       - ./data/processed:/app/data/processed
       - ./data/raw:/app/data/raw
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    depends_on:
+      - api
+    ports:
+      - "3100:3100"
     restart: unless-stopped
 
 volumes:

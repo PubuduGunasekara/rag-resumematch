@@ -42,6 +42,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 32 | 2026-11-16 | Feature | [Comparing a revised resume against the same postings](#version-compare) | Adopted |
 | 33 | 2026-11-16 | Feature | [Recruiter mode: ranking resumes for a job, with blind review](#recruiter-mode) | Adopted |
 | 34 | 2026-11-16 | Feature | [Asking questions about the report](#ask-report) | Adopted |
+| 35 | 2026-11-16 | Deployment | [The API and the site in Docker](#docker-site) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -1163,6 +1164,53 @@ authority. A larger model on the planned GPU deployment is the place to measure 
 misreadings drop.
 
 **Evidence.** `tests/test_chat.py`, `tests/test_api.py`, `tests/test_auth.py`
+
+---
+
+<a id="docker-site"></a>
+## 35. The API and the site in Docker
+
+**Deployment, 2026-11-16. Outcome: adopted.**
+
+**Problem.** Docker ran only the Streamlit app, which has no sign-in and none of the newer
+features. The system people would see on a deployment (the site with sign-in, roles, recruiter mode
+and chat) could not be started in containers, so the GPU VM profile could not serve it either.
+
+**Hypothesis.** The existing Python image can serve the API with one switch, and a small Next.js
+image in front of it keeps the design the site already has: the browser talks only to the site,
+which proxies `/api/*`, so the API needs no public port and no CORS.
+
+**Method.** `entrypoint.sh` starts uvicorn when `APP_MODE=api` and Streamlit otherwise, after the
+same Ollama and index checks. `web/Dockerfile` builds the site with the API address as a build
+argument, because Next.js writes the proxy rule into the build. Both compose files start Ollama,
+the API and the site; Streamlit became an optional profile locally. Sign-in settings pass through
+from `.env`, with the public demo password as the default. Built on the Mac and run with the full
+index mounted and the Mac's own Ollama (`OLLAMA_HOST_FOR_APP`), then exercised through port 3100.
+
+**Results.**
+
+| Step | Result |
+|---|---|
+| Build both images | 2 min 8 s; API image 2.19 GB, site image 850 MB |
+| Start to healthy | About 6 s; `/api/health` through the site reported 107,528 postings and no problems |
+| Signed out | Page redirects to `/login`; `/api/roles` returns 401 |
+| Job seeker calling `/api/rank` | 403 |
+| Role report, Registered Nurse | 2.3 s, 1,000 postings read |
+| Resume check, accountant | 23.1 s, 5 postings |
+| Chat: salary question / reconciliations question | 1.8 s by code / 7.3 s by the model |
+| Recruiter sign-in in the browser, with "Fill in" | Lands on Rank candidates |
+| Memory while idle after these requests | API 1.11 GB, site 63 MB |
+
+The reconciliations answer began "Staff Accountant at IFG Chicago requires you to reconcile 40+
+balance sheet accounts monthly", which is the candidate's own resume line attributed to the posting:
+another case of the limit recorded in entry 34.
+
+Not run: the Ollama container itself (the Mac's Ollama was used, as in development), the Streamlit
+profile, and the GCP profile, which still has never been started.
+
+**Decision.** Adopted. The full system now starts with one compose command.
+
+**Evidence.** `docker-compose.local.yml`, `docker-compose.gcp.yml`, `web/Dockerfile`, `entrypoint.sh`
 
 ---
 

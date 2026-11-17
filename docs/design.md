@@ -158,19 +158,23 @@ Docker images still run Streamlit only, which has no sign-in.
 - **Laptop:** the app runs natively or in Docker; Ollama runs natively to use the Metal GPU.
 - **Docker:** `docker-compose.local.yml` waits for Ollama, pulls the model if needed, reuses a
   complete index from the mounted `chroma_db/` and `data/processed/`, and otherwise builds one.
-  Docker covers the Streamlit app; the API and the Next.js site run outside it.
+  By default it starts Ollama, the API (`APP_MODE=api` in the same Python image) and the Next.js
+  site (`web/Dockerfile`), which is the only published port (3100) and proxies `/api/*` to the API.
+  The Streamlit app is an optional profile.
 - **Sample index:** `scripts/make_sample_index.py` builds a 2,000-posting index with contact details
   removed, plus CC BY-SA 4.0 license and attribution files; it is published as a release asset and
   installed by `scripts/fetch_sample_index.py`, which verifies its SHA-256.
 - **GPU VM:** `docker-compose.gcp.yml` and `gcp/start.sh` create a GCP VM with a T4 GPU, about
   $0.50 to $0.55 an hour, or over $350 a month if left running. The index is built locally and
-  copied up so the VM only pays for inference. `gcp/stop.sh` stops it.
+  copied up so the VM only pays for inference. `gcp/stop.sh` stops it. It runs the same API and
+  site services; set `SESSION_SECRET`, and `COOKIE_SECURE=1` once it is served over HTTPS.
 
 ## Verified and not verified
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
 | Unit tests | 336 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Site and API in Docker | Sign-in, role checks (401 signed out, 403 wrong role), role report 2.3 s, resume check 23.1 s, chat 1.8 s (code) and 7.3 s (model) | Docker Desktop on the M3 Pro, full index mounted, Ollama native on the Mac | One run each through the site container | 2026-11-16 | Log, [docker-site](engineering-log.md#docker-site) |
 | Chat answers | Code answers 0.1 to 2.0 s; model answers 2.2 to 6.9 s; off-topic declined in 0.1 to 0.5 s | M3 Pro, `llama3.2:3b` | Nurse and accountant reports, runs of 3 to 6 questions each | 2026-11-16 | Log, [ask-report](engineering-log.md#ask-report) |
 | Recruiter ranking | Same 9 requirements and same order in 2 runs; extraction 2.0 to 2.1 s, ranking 96 ms for 4 resumes | M3 Pro, `llama3.2:3b` | One backend job description, 4 synthetic resumes | 2026-11-16 | Log, [recruiter-mode](engineering-log.md#recruiter-mode) |
 | Version compare | 4 ms to parse the new file, 35.5 ms to compare 15 requirements in 4 postings | M3 Pro | Accountant resume and a revised copy | 2026-11-16 | Log, [version-compare](engineering-log.md#version-compare) |

@@ -36,6 +36,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 26 | 2026-11-12 | Query correction | [Names and real words were "corrected" on clean resumes](#false-corrections) | Adopted |
 | 27 | 2026-11-16 | Feature | [A report for a job title, not just the 5 closest postings](#role-report) | Adopted |
 | 28 | 2026-11-16 | Feature | [Sign-in and roles](#sign-in) | Adopted |
+| 29 | 2026-11-16 | Feature | [Search filters](#search-filters) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -854,6 +855,58 @@ live in memory, and the Docker images still run only Streamlit, which has no sig
 database come with the features that store data.
 
 **Evidence.** `tests/test_auth.py`, `tests/test_api.py`, `tests/test_health.py`
+
+---
+
+<a id="search-filters"></a>
+## 29. Search filters
+
+**Feature, 2026-11-16. Outcome: adopted.**
+
+**Problem.** A remote-only job seeker, or one who can't take less than a set salary, got postings
+they would never apply to. The facts to filter on (location, remote, work type, level, salary) were
+already in `posting_details.json`, but not in the vector index, so ChromaDB can't filter on them.
+
+**Hypothesis.** Turning a filter into the set of passing job ids and limiting retrieval to that set
+keeps the report as good as unfiltered, as long as the search itself is limited, not its top 5.
+Rebuilding the index with the fields as metadata would take about 40 minutes and isn't needed.
+
+**Method.** Coverage, from the details joined with the 107,526 indexed postings: work type and
+remote for all, a level for 75%, a salary for 31% (in fixed formats such as "$17 to $20 an hour"),
+and 7% with only "United States" as their location. Then two ways of limiting one resume
+section's search, on the full index:
+
+| Way | Postings allowed | Time | Postings found |
+|---|---|---|---|
+| ChromaDB `where` on the job id list | 1,048 (Boston) | 0.06 s | 30 |
+| ChromaDB `where` on the job id list | 3,097 (MA) | 1.05 s | 30 |
+| ChromaDB `where` on the job id list | 12,880 (remote) | 5.01 s | 30 |
+| Fetch 600 chunks, drop the rest | 12,880 (remote) | 0.10 s | 172 remote |
+
+So `where` for sets of at most 2,500 postings and fetch-and-drop above. Salaries are converted to a
+yearly range (2,080 hours, 52 weeks, 12 months); a posting passes a minimum if the top of its range
+reaches it. Then one resume (data engineer) with five filter sets, retrieval only, and two full
+reports with the model through the API (backend Java resume).
+
+**Results.**
+
+| Filters | Postings passing | Retrieval time | All 5 results pass |
+|---|---|---|---|
+| None | all | 0.06 s | yes |
+| Remote | 12,880 | 0.98 s | yes |
+| MA | 3,097 | 0.11 s | yes |
+| MA, Full-time, at least $100,000 | 320 | 0.62 s | yes |
+| Contract | 11,191 | 0.11 s | yes |
+| Entry level | 30,039 | 0.10 s | yes |
+
+The two full reports (remote; CA, Full-time, at least $120,000) took 30.3 s (model cold) and 20.9 s,
+and every posting in them passed. In the role report, Data Engineer with MA gave 9 postings and
+with MA and remote 2, both under the 15-posting minimum, and the page says to remove a filter.
+
+**Decision.** Adopted, for both reports. Filters that match nothing are refused before any model
+runs. The report names the filters and what they leave out (no level, no salary, no state).
+
+**Evidence.** `tests/test_filters.py`, `tests/test_api.py`
 
 ---
 

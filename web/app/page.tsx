@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import ReportView from "@/components/Report";
 import RoleGate from "@/components/RoleGate";
+import Filters, { appendFilters, NO_FILTERS, type FilterValues } from "@/components/Filters";
 import { handleSignedOut } from "@/lib/session";
 import type { Report } from "@/lib/types";
 
@@ -32,6 +33,7 @@ type Problem = { code: string; message: string; blocking: boolean };
 function ResumeCheck() {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [correction, setCorrection] = useState(true);
+  const [filters, setFilters] = useState<FilterValues>(NO_FILTERS);
   const [over, setOver] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -65,6 +67,7 @@ function ResumeCheck() {
     body.append("file", file);
     body.append("correction", String(correction));
     body.append("allow_unusual", String(allowUnusual));
+    appendFilters(body, filters);
     try {
       const res = await fetch("/api/analyze", { method: "POST", body });
       if (handleSignedOut(res)) return;
@@ -123,6 +126,7 @@ function ResumeCheck() {
         <input type="checkbox" checked={correction} onChange={(e) => setCorrection(e.target.checked)} disabled={disabled} />
         Fix typos before searching (your resume is still checked as written)
       </label>
+      <Filters value={filters} onChange={setFilters} disabled={disabled} />
       <p className="small muted" style={{ marginTop: 6 }}>
         Your resume is processed by a local model and deleted as soon as the check finishes.
       </p>

@@ -31,7 +31,10 @@ export interface Job {
   highlight: [number, number][];
 }
 
+export interface AppliedFilters { applied: string; caveats: string[]; postings: number | null }
+
 export interface Report {
+  filters: AppliedFilters | null;
   headline: string;
   summary: string;
   total_postings: number | null;
@@ -59,6 +62,7 @@ export interface RoleTerm {
 }
 
 export interface RoleReport {
+  filters: AppliedFilters | null;
   role: string;
   headline: string;
   summary: string;

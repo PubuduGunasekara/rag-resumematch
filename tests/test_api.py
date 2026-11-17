@@ -165,3 +165,47 @@ def test_role_report_needs_a_role(monkeypatch):
     _fake_role_data(monkeypatch)
     r = TestClient(api.app).post("/api/role-report", data={"role": " - "})
     assert r.status_code == 400 and r.json()["detail"]["code"] == "no_role"
+
+
+def test_filters_reach_the_pipeline_and_come_back_in_the_report(monkeypatch):
+    from resumematch.retrieval.filters import SearchFilters
+    seen = {}
+
+    def pipeline(*a, filters=None, indexed_ids=None, **k):
+        seen["filters"], seen["indexed"] = filters, set(indexed_ids or [])
+        result = fake_result()
+        result.filters, result.allowed_count = filters, 42
+        return result
+    monkeypatch.setattr(api, "run_pipeline", pipeline)
+    monkeypatch.setattr(api, "_role_data", lambda: (None, {"7": ["RN", None, None]}, {}))
+    body = TestClient(api.app).post("/api/analyze", files={"file": ("cv.docx", b"x")},
+                                    data={"remote_only": "true", "states": "MA", "min_salary": "70000"}).json()
+    assert seen["filters"] == SearchFilters(True, ("MA",), (), (), 70000) and seen["indexed"] == {"7"}
+    assert body["filters"]["applied"] == "Remote only; MA; at least $70,000 a year" and body["filters"]["postings"] == 42
+
+
+def test_no_filters_means_no_filter_block(client):
+    body = client.post("/api/analyze", files={"file": ("cv.docx", b"x")}).json()
+    assert body["filters"] is None
+
+
+def test_filters_that_match_nothing_are_a_plain_422(monkeypatch):
+    from resumematch.pipeline import NoPostingsMatch
+
+    def pipeline(*a, **k):
+        raise NoPostingsMatch("x")
+    monkeypatch.setattr(api, "run_pipeline", pipeline)
+    monkeypatch.setattr(api, "_role_data", lambda: (None, {}, {}))
+    r = TestClient(api.app).post("/api/analyze", files={"file": ("cv.docx", b"x")}, data={"remote_only": "true"})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "no_matching_postings"
+
+
+def test_role_report_applies_filters(monkeypatch):
+    _fake_role_data(monkeypatch)
+    details = {str(i): {"remote": i < 16, "location": "Boston, MA", "work_type": "Full-time"} for i in range(20)}
+    monkeypatch.setattr(api, "_load_json", lambda path: details if "details" in path else None)
+    c = TestClient(api.app)
+    body = c.post("/api/role-report", data={"role": "data engineer", "remote_only": "true"}).json()
+    assert body["matched"] == 16 and body["filters"]["applied"] == "Remote only"
+    r = c.post("/api/role-report", data={"role": "data engineer", "work_types": "Contract"})
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "no_matching_postings"

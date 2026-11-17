@@ -63,7 +63,7 @@ class VectorStore:
             } for c in chunks],
         )
 
-    def query(self, query_embedding: list[float], top_k: int = 5) -> list[dict]:
+    def query(self, query_embedding: list[float], top_k: int = 5, job_ids: list[str] | None = None) -> list[dict]:
         """
         Output: list of dicts, ordered by relevance (closest first), each:
             {"text": str, "distance": float, "job_id": str, "section": str,
@@ -72,7 +72,9 @@ class VectorStore:
         directly, no second lookup needed to render a citation.
         """
         collection = self._get_collection()
-        result = collection.query(query_embeddings=[query_embedding], n_results=top_k)
+        # job_ids: search only these postings (search filters; see retrieval/filters.py).
+        where = {"job_id": {"$in": [str(j) for j in job_ids]}} if job_ids is not None else None
+        result = collection.query(query_embeddings=[query_embedding], n_results=top_k, where=where)
 
         documents = result["documents"][0]
         distances = result["distances"][0]

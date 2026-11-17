@@ -189,3 +189,18 @@ details.how ul, details.how ol { margin: 10px 0 0; padding-left: 20px; color: va
   .site-header { flex-direction: column; align-items: flex-start; gap: 8px; }
   .site-nav { justify-content: flex-start; gap: 6px 14px; }
 }
+
+/* Search filters */
+.filters { margin-top: 18px; border-top: 1px solid var(--hairline); padding-top: 12px; font-size: 14px; }
+.filters summary { cursor: pointer; color: var(--ink); font-weight: 500; }
+.filters fieldset { border: none; padding: 0; margin: 12px 0 0; display: grid; gap: 14px; }
+.filters label { display: grid; gap: 6px; color: var(--graphite); }
+.filters label.check { display: inline-flex; gap: 8px; align-items: center; color: var(--ink); }
+.filters .check input { accent-color: var(--ink); width: 15px; height: 15px; }
+.filters .label { margin: 0 0 6px; color: var(--graphite); }
+.filters .chips { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.filters select, .filters input[type="text"] {
+  font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid var(--hairline-strong);
+  background: #fff; color: var(--ink); border-radius: 2px; max-width: 260px;
+}
+.filter-note { font-size: 14px; margin: 8px 0 0; padding: 8px 12px; background: var(--paper-deep); border-left: 2px solid var(--ink); }

@@ -8,7 +8,7 @@ rebuild the index on every call, since that would mean re-processing
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -23,12 +23,17 @@ from resumematch.ingest.validate import (  # noqa: F401 (re-exported for the UIs
 from resumematch.preprocess.query_correction import CorrectionResult, correct_query
 from resumematch.preprocess.resume_sections import ResumeSection, split_resume
 from resumematch.retrieval.embedder import Embedder
+from resumematch.retrieval.filters import SearchFilters, allowed_ids
 from resumematch.retrieval.fusion import retrieve_for_resume
 from resumematch.retrieval.vector_store import VectorStore
 
 
 class IndexNotBuiltError(RuntimeError):
     """Raised when the vector store is empty; run scripts/build_index.py first."""
+
+
+class NoPostingsMatch(Exception):
+    """No indexed posting passes the search filters; raised before any model runs."""
 
 
 @dataclass
@@ -48,6 +53,10 @@ class PipelineResult:
     # learn-first. What the results page renders.
     report: JobReport
     resume_text: str
+    # Search filters applied, and how many indexed postings passed them
+    # (None when no filter was set).
+    filters: SearchFilters = field(default_factory=SearchFilters)
+    allowed_count: int | None = None
 
 
 def load_config(config_path: str = "config.yaml") -> dict:
@@ -81,6 +90,8 @@ def run_pipeline(
     apply_correction: bool = True,
     details: dict[str, dict] | None = None,
     allow_unusual: bool = False,
+    filters: SearchFilters | None = None,
+    indexed_ids=None,
 ) -> PipelineResult:
     """
     Input:
@@ -96,6 +107,10 @@ def run_pipeline(
             data/processed/posting_details.json (loaded once by the app).
         allow_unusual: the user chose "Check it anyway" after a soft
             "doesn't look like a resume" warning.
+        filters: search filters (remote, state, work type, level, salary),
+            applied with `details`; only passing postings can be returned.
+        indexed_ids: job ids in the index, so the count of passing postings
+            excludes postings that were never indexed (duplicates, empty).
     Raises:
         ResumeRejected: the file isn't a readable resume (see ingest/validate.py),
             BEFORE any model is loaded or called.
@@ -109,6 +124,11 @@ def run_pipeline(
         raise IndexNotBuiltError(
             "The job-postings index is empty. Run `python scripts/build_index.py` first."
         )
+
+    filters = filters or SearchFilters()
+    allowed = allowed_ids(details or {}, filters, indexed_ids) if filters.active else None
+    if allowed is not None and not allowed:
+        raise NoPostingsMatch(filters.describe())
 
     corrections: list[CorrectionResult] = []
     if apply_correction and domain_vocabulary is not None:
@@ -140,6 +160,7 @@ def run_pipeline(
         top_k=config["retrieval"]["top_k"],
         per_section_k=config["retrieval"]["per_section_k"],
         max_per_company=config["retrieval"]["max_per_company"],
+        allowed=allowed,
     )
 
     client = OllamaClient()
@@ -161,4 +182,5 @@ def run_pipeline(
     return PipelineResult(
         gap_analysis=report.analysis, corrections=corrections, sections=sections,
         retrieved=retrieved, report=report, resume_text=resume_text,
+        filters=filters, allowed_count=len(allowed) if allowed is not None else None,
     )

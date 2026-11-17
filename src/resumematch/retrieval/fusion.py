@@ -38,6 +38,15 @@ from resumematch.retrieval.vector_store import VectorStore
 
 RRF_K = 60
 
+# Search filters (retrieval/filters.py) limit retrieval to a set of postings.
+# Measured on the full index (docs/engineering-log.md, search-filters): asking
+# ChromaDB to search only a set took 0.06 s for 1,048 postings but 5 s for
+# 12,880, per section; fetching 600 chunks and dropping the rest took 0.1 s
+# and still left 172 remote postings for one section. So: a filtered search
+# for small sets, fetch-and-drop for large ones.
+EXACT_FILTER_LIMIT = 2500
+OVERFETCH = 20
+
 
 def fuse_rankings(
     per_section_hits: list[tuple[str, list[dict]]], top_k: int, max_per_company: int | None = 2
@@ -98,10 +107,13 @@ def retrieve_for_resume(
     top_k: int = 5,
     per_section_k: int = 30,
     max_per_company: int | None = 2,
+    allowed: set[str] | None = None,
 ) -> list[dict]:
     """
     Embeds every section in one batch, retrieves per_section_k chunks
     for each, and fuses them into top_k distinct postings.
+
+    allowed: when set (search filters), only these job ids can be returned.
 
     per_section_k is in CHUNKS (postings have ~2 chunks on average), and
     must be well above top_k: a posting only earns fusion credit from a
@@ -110,8 +122,15 @@ def retrieve_for_resume(
     if not sections:
         return []
     vectors = embedder.embed([s.text for s in sections])
-    per_section_hits = [
-        (section.heading, store.query(vector, top_k=per_section_k))
-        for section, vector in zip(sections, vectors, strict=False)
-    ]
+    def search(vector) -> list[dict]:
+        if allowed is None:
+            return store.query(vector, top_k=per_section_k)
+        if not allowed:
+            return []
+        if len(allowed) <= EXACT_FILTER_LIMIT:
+            return store.query(vector, top_k=per_section_k, job_ids=sorted(allowed))
+        hits = store.query(vector, top_k=per_section_k * OVERFETCH)
+        return [h for h in hits if h["job_id"] in allowed][:per_section_k]
+
+    per_section_hits = [(section.heading, search(vector)) for section, vector in zip(sections, vectors, strict=False)]
     return fuse_rankings(per_section_hits, top_k=top_k, max_per_company=max_per_company)

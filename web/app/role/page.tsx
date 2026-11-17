@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RoleReport } from "@/lib/types";
 import { handleSignedOut } from "@/lib/session";
+import Filters, { appendFilters, FilterNote, NO_FILTERS, type FilterValues } from "@/components/Filters";
 
 type Suggestion = { title: string; postings: number };
 
@@ -28,6 +29,7 @@ function Facts({ report }: { report: RoleReport }) {
 export default function RolePage() {
   const [role, setRole] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [filters, setFilters] = useState<FilterValues>(NO_FILTERS);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [report, setReport] = useState<RoleReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export default function RolePage() {
     const body = new FormData();
     body.append("role", title.trim());
     if (file) body.append("file", file);
+    appendFilters(body, filters);
     try {
       const res = await fetch("/api/role-report", { method: "POST", body });
       if (handleSignedOut(res)) return;
@@ -96,6 +99,7 @@ export default function RolePage() {
             {file && <button type="button" className="button ghost" onClick={() => { setFile(null); if (fileInput.current) fileInput.current.value = ""; }}>Remove</button>}
           </div>
         </label>
+        <Filters value={filters} onChange={setFilters} disabled={working} />
         <div className="row">
           <button className="button" type="submit" disabled={working}>{working ? "Reading postings" : "Show the report"}</button>
           <span className="small muted">No language model is used here; it takes a few seconds.</span>
@@ -108,6 +112,7 @@ export default function RolePage() {
         <section className="report" aria-label={`Role report for ${report.role}`}>
           <h1 className="serif">{report.headline}</h1>
           <p className="lede">{report.summary}</p>
+          <FilterNote filters={report.filters} />
           <Facts report={report} />
           {report.matched > report.analyzed && report.analyzed > 0 && (
             <p className="small muted">{report.matched.toLocaleString()} postings have this title; a fixed sample of {report.analyzed.toLocaleString()} was read.</p>

@@ -277,8 +277,11 @@ def role_facts(job_ids: list[str], details: dict[str, dict]) -> dict:
 
 def build_role_profile(store: VectorStore, titles: dict[str, list], background: dict, role: str,
                        details: dict[str, dict] | None = None, resume_text: str | None = None,
-                       limit: int = 20) -> RoleProfile:
+                       limit: int = 20, allowed: set[str] | None = None) -> RoleProfile:
+    """allowed: when set (search filters), only these postings count."""
     matched = match_postings(titles, role)
+    if allowed is not None:
+        matched = [j for j in matched if j in allowed]
     ids = matched if len(matched) <= MAX_POSTINGS else sorted(random.Random(0).sample(matched, MAX_POSTINGS))
     if len(ids) < MIN_POSTINGS:
         return RoleProfile(role, len(matched), len(ids), [], role_facts(ids, details or {}))
@@ -294,9 +297,13 @@ def build_role_profile(store: VectorStore, titles: dict[str, list], background: 
     return RoleProfile(role, len(matched), len(ids), terms, role_facts(ids, details or {}))
 
 
-def summarize(profile: RoleProfile, display_role: str) -> tuple[str, str]:
+def summarize(profile: RoleProfile, display_role: str, filtered: bool = False) -> tuple[str, str]:
     """Headline and one-line summary, decided here so every interface says the same."""
     if profile.analyzed < MIN_POSTINGS:
+        if filtered:
+            return (f"Too few {display_role} postings pass these filters",
+                    f"{profile.matched} indexed postings have that title and pass the filters. Remove a filter "
+                    f"or try a broader title.")
         return (f"Too few postings titled {display_role}",
                 f"{profile.matched} indexed postings have that title. Try a broader title, for example without "
                 f"the seniority level.")

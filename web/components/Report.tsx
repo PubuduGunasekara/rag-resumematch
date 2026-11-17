@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import type { Job, Report, Requirement } from "@/lib/types";
+import { FilterNote } from "@/components/Filters";
 
 const STATUS: Record<Requirement["status"], string> = { shown: "Shown", partly: "Partly shown", not_found: "Not found" };
 
@@ -122,6 +123,7 @@ export default function ReportView({ report, fileName }: { report: Report; fileN
         {report.summary}
         {report.total_postings ? ` Searched ${report.total_postings.toLocaleString()} LinkedIn postings.` : ""}
       </p>
+      <FilterNote filters={report.filters} />
 
       {best && (
         <div className="section">

@@ -11,9 +11,13 @@ Endpoints:
     GET  /api/admin/overview  accounts, recent sign-ins, index size (admin only)
     POST /api/analyze      multipart "file" (.pdf/.docx), form "correction" (bool),
                            form "allow_unusual" (bool: "Check it anyway" after a soft warning)
+    GET  /api/filter-options  choices and counts for the search filters
     GET  /api/roles        ?q= title suggestions for the role report
     POST /api/role-report  form "role", optional multipart "file": what postings with
                            that title ask for, and which of those terms the resume uses
+
+Both POST endpoints take the same optional filter fields: "remote_only" (bool),
+"states", "work_types", "levels" (comma-separated) and "min_salary" (per year).
 
 Every endpoint except health needs a signed-in user, and each names the
 roles it allows (see api/auth.py).
@@ -48,6 +52,7 @@ from resumematch.health import as_dicts, check
 from resumematch.market import role_profile
 from resumematch.pipeline import (
     IndexNotBuiltError,
+    NoPostingsMatch,
     PipelineResult,
     ResumeRejected,
     indexed_postings,
@@ -56,6 +61,7 @@ from resumematch.pipeline import (
     run_pipeline,
     validate_resume,
 )
+from resumematch.retrieval import filters as search_filters
 from resumematch.retrieval.vector_store import VectorStore
 
 load_dotenv()
@@ -113,6 +119,7 @@ def report_to_json(result: PipelineResult, total_postings: int | None = None) ->
         "jobs": jobs,
         "learn_first": [asdict(i) for i in report.learn_first],
         "resume_text": result.resume_text,
+        "filters": _filters_json(result.filters, result.allowed_count),
         "how": {
             "sections": [s.heading for s in result.sections],
             "retrieved": [{"title": p["title"], "company": p.get("company_name"),
@@ -210,10 +217,26 @@ def _role_data() -> tuple[VectorStore, dict, dict]:
     return store, titles, role_profile.load_background(store, titles, cache_dir)
 
 
-def role_report_to_json(profile: role_profile.RoleProfile, display_role: str) -> dict:
-    headline, summary = role_profile.summarize(profile, display_role)
+def _filters_json(filters: search_filters.SearchFilters, allowed_count: int | None) -> dict | None:
+    if not filters.active:
+        return None
+    return {"applied": filters.describe(), "caveats": filters.caveats(), "postings": allowed_count}
+
+
+def _form_filters(remote_only: bool, states: str, work_types: str, levels: str, min_salary: str):
+    return search_filters.parse_filters(remote_only, states, work_types, levels, min_salary)
+
+
+NO_MATCH_MESSAGE = "No indexed postings match these filters. Remove one and try again."
+
+
+def role_report_to_json(profile: role_profile.RoleProfile, display_role: str,
+                        filters: search_filters.SearchFilters | None = None, allowed_count: int | None = None) -> dict:
+    filters = filters or search_filters.SearchFilters()
+    headline, summary = role_profile.summarize(profile, display_role, filtered=filters.active)
     return {
         "role": display_role, "headline": headline, "summary": summary,
+        "filters": _filters_json(filters, allowed_count),
         "matched": profile.matched, "analyzed": profile.analyzed, "facts": profile.facts,
         "with_resume": any(t.shown is not None for t in profile.terms),
         "terms": [asdict(t) for t in profile.terms],
@@ -222,6 +245,20 @@ def role_report_to_json(profile: role_profile.RoleProfile, display_role: str) ->
 
 ALL_ROLES = auth.require_role(*auth.ROLES)
 RESUME_CHECK_ROLES = auth.require_role("seeker", "advisor", "admin")
+
+
+@cache
+def _filter_options() -> dict:
+    _store, titles, _bg = _role_data()
+    return search_filters.filter_options(_load_json(str(DETAILS_PATH)) or {}, titles.keys())
+
+
+@app.get("/api/filter-options")
+def filter_options(_user: auth.User = Depends(ALL_ROLES)) -> dict:
+    try:
+        return _filter_options()
+    except IndexNotBuiltError:
+        raise _error(503, "no_index", "The job postings index hasn't been built yet.") from None
 
 
 @app.get("/api/roles")
@@ -235,7 +272,10 @@ def roles(q: str = "", _user: auth.User = Depends(ALL_ROLES)) -> dict:
 
 @app.post("/api/role-report")
 def role_report(role: str = Form(...), file: UploadFile | None = File(None), allow_unusual: bool = Form(False),
+                remote_only: bool = Form(False), states: str = Form(""), work_types: str = Form(""),
+                levels: str = Form(""), min_salary: str = Form(""),
                 _user: auth.User = Depends(ALL_ROLES)) -> dict:
+    filters = _form_filters(remote_only, states, work_types, levels, min_salary)
     display_role = " ".join(role.split())[:80]
     if len(role_profile.normalize_role(display_role)) < 2:
         raise _error(400, "no_role", "Enter a job title, for example Data Engineer.")
@@ -250,9 +290,15 @@ def role_report(role: str = Form(...), file: UploadFile | None = File(None), all
             raise _error(422, rejected.code, rejected.message, rejected.soft) from None
     try:
         store, titles, background = _role_data()
-        profile = role_profile.build_role_profile(store, titles, background, display_role,
-                                                  details=_load_json(str(DETAILS_PATH)) or {}, resume_text=resume_text)
-        return role_report_to_json(profile, display_role)
+        details = _load_json(str(DETAILS_PATH)) or {}
+        allowed = search_filters.allowed_ids(details, filters, titles.keys()) if filters.active else None
+        if allowed is not None and not allowed:
+            raise _error(422, "no_matching_postings", NO_MATCH_MESSAGE)
+        profile = role_profile.build_role_profile(store, titles, background, display_role, details=details,
+                                                  resume_text=resume_text, allowed=allowed)
+        return role_report_to_json(profile, display_role, filters, len(allowed) if allowed is not None else None)
+    except HTTPException:
+        raise
     except IndexNotBuiltError:
         raise _error(503, "no_index", "The job postings index hasn't been built yet.") from None
     except Exception as err:  # noqa: BLE001 - same rule as /api/analyze: no stack traces, no resume text in logs
@@ -262,8 +308,11 @@ def role_report(role: str = Form(...), file: UploadFile | None = File(None), all
 
 @app.post("/api/analyze")
 def analyze(file: UploadFile = File(...), correction: bool = Form(True), allow_unusual: bool = Form(False),
+            remote_only: bool = Form(False), states: str = Form(""), work_types: str = Form(""),
+            levels: str = Form(""), min_salary: str = Form(""),
             _user: auth.User = Depends(RESUME_CHECK_ROLES)) -> dict:
     suffix, data = _read_upload(file)
+    filters = _form_filters(remote_only, states, work_types, levels, min_salary)
     if not _busy.acquire(blocking=False):
         raise _error(429, "busy", "Another resume is being checked right now. Try again in a minute.")
     path = None
@@ -271,11 +320,15 @@ def analyze(file: UploadFile = File(...), correction: bool = Form(True), allow_u
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(data)
             path = tmp.name
+        indexed_ids = _role_data()[1].keys() if filters.active else None
         result = run_pipeline(path, domain_vocabulary=_load_json(str(VOCAB_PATH)), apply_correction=correction,
-                              details=_load_json(str(DETAILS_PATH)) or {}, allow_unusual=allow_unusual)
+                              details=_load_json(str(DETAILS_PATH)) or {}, allow_unusual=allow_unusual,
+                              filters=filters, indexed_ids=indexed_ids)
         return report_to_json(result, indexed_postings(resolve_persist_dir(load_config())))
     except ResumeRejected as rejected:
         raise _error(422, rejected.code, rejected.message, rejected.soft) from None
+    except NoPostingsMatch:
+        raise _error(422, "no_matching_postings", NO_MATCH_MESSAGE) from None
     except IndexNotBuiltError:
         raise _error(503, "no_index", "The job postings index hasn't been built yet.") from None
     except requests.ConnectionError:

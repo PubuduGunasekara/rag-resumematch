@@ -117,6 +117,12 @@ sends the resume text and the posting's verified matches back with the request, 
 stored on the server, and the matches are checked again. Code arranges the letter (opening, cited
 body, close) because the 3B model ignored paragraph numbers and repeated sentences.
 
+Interview prep (`generation/interview.py`, `/api/interview`) takes the posting's requirements
+from the report the browser has, recomputes each status against the resume text, and asks the model
+for one question per requirement plus two about the role. Hints are written in Python from the
+verified quote or the matching words. A question must end with "?", share a key term with its
+requirement and name no tool outside the posting and resume; otherwise a template is used.
+
 The Next.js site requires sign-in (`api/auth.py`). Four fixed demo accounts, one per role (job
 seeker, recruiter, career advisor, admin), share a password from `DEMO_PASSWORD`, kept only as a
 salted scrypt hash. With `DEMO_PASSWORD_PUBLIC=1` (the default) the password is public: the README
@@ -143,7 +149,8 @@ Docker images still run Streamlit only, which has no sign-in.
 
 | What | Result | Hardware | Sample | Date | Source |
 |---|---|---|---|---|---|
-| Unit tests | 293 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Unit tests | 302 pass, no model, index or network needed | M3 Pro, macOS | Whole suite | 2026-11-16 | `pytest -q` |
+| Interview questions from the model that passed the checks | 9 of 10, 7 of 7, 2 of 2, 1 of 1; 2.2 to 6.2 s | M3 Pro, `llama3.2:3b` | Backend (2 runs), nurse, accountant; closest posting | 2026-11-16 | Log, [interview-prep](engineering-log.md#interview-prep) |
 | Bullet rewrites that passed the checks | 3, 5 and 4 of 6 (backend, nurse, accountant); 6.5 to 10.7 s each | M3 Pro, `llama3.2:3b` | One run per resume, closest posting | 2026-11-16 | Log, [tailoring](engineering-log.md#tailoring) |
 | Filtered retrieval | Every returned posting passed its filters; 0.10 to 0.98 s for the retrieval step | M3 Pro | One resume, 5 filter sets, full index; 2 full reports with the model | 2026-11-16 | Log, [search-filters](engineering-log.md#search-filters) |
 | Role checks | Recruiter gets 403 from `/api/analyze` and `/api/admin/overview`, 200 from `/api/roles`; signed out gets 401; the session cookie is not readable by page scripts | Chrome (in-app browser), local | All four demo accounts | 2026-11-16 | Log, [sign-in](engineering-log.md#sign-in) |
@@ -194,7 +201,7 @@ Docker images still run Streamlit only, which has no sign-in.
 | End-to-end time per resume, Docker on CPU | 57.0 s median (35.5 to 72.3 s), 3 resumes, 6 runs | Log, [benchmark](engineering-log.md#benchmark) |
 | Share of time spent on generation, native | about 96% | Log, [benchmark](engineering-log.md#benchmark) |
 | Search and fusion per resume, native | 0.08 to 0.23 s (median per resume) | Log, [benchmark](engineering-log.md#benchmark) |
-| Unit tests | 293 passing | `pytest -q`, 2026-11-16 |
+| Unit tests | 302 passing | `pytest -q`, 2026-11-16 |
 | Postings with a level / a salary / only "United States" as location | 75% / 31% / 7% of 107,526 | `posting_details.json` joined with the index, 2026-11-16 |
 | Role report caches | Titles 12.3 s, background terms 6.7 s, built once | Log, [role-report](engineering-log.md#role-report), 2026-11-16 |
 

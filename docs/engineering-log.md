@@ -38,6 +38,7 @@ Add an entry whenever a change is measured. Keep the wording plain: no em dashes
 | 28 | 2026-11-16 | Feature | [Sign-in and roles](#sign-in) | Adopted |
 | 29 | 2026-11-16 | Feature | [Search filters](#search-filters) | Adopted |
 | 30 | 2026-11-16 | Feature | [Resume bullet rewrites and a cover letter, checked in code](#tailoring) | Adopted |
+| 31 | 2026-11-16 | Feature | [Interview prep from the report](#interview-prep) | Adopted |
 
 <a id="vocab-full-corpus"></a>
 ## 1. Build the spelling vocabulary from all postings, not a sample
@@ -969,6 +970,52 @@ is not a measurement of rates.
 and a draft, with every rejection and its reason.
 
 **Evidence.** `tests/test_tailor.py`, `tests/test_api.py`, `tests/test_auth.py`
+
+---
+
+<a id="interview-prep"></a>
+## 31. Interview prep from the report
+
+**Feature, 2026-11-16. Outcome: adopted.**
+
+**Problem.** The report says which requirements a resume shows. The next question for a job seeker
+is what they will be asked about each, and what to say. Generated interview advice can easily tell
+someone to talk about experience they don't have.
+
+**Hypothesis.** If the model writes only the questions and code supplies what to draw on (the
+verified resume line, the words of a requirement the resume does use, or an honest-answer hint), the
+advice can't invent experience, and a template keeps every requirement covered when the model fails.
+
+**Method.** `generation/interview.py`. The browser sends the posting's requirements from its report;
+the server keeps those in the posting, recomputes "shown" (a quote that is in the resume and mentions
+the requirement), "partly" (any non-generic word of it on the resume), "not found" or "general
+strength", and orders gaps first. The model (schema: at least one question per requirement) phrases
+the questions. Run on the backend Java resume twice, the nurse, the accountant and the teacher, each
+against its closest posting, then in the browser on two backend postings.
+
+**Results.**
+
+| Resume | Requirements kept | Model questions used | General questions | Time |
+|---|---|---|---|---|
+| Backend Java, run 1 | 10 | 9 (1 template: "doesn't ask about this requirement") | 0 | 6.2 s |
+| Backend Java, run 2 | 7 | 7 | 0 | 4.3 s |
+| Nurse | 2 | 2 | 0 | 2.2 s |
+| Accountant | 1 | 1 | 2 | 2.4 s |
+| High school teacher | 0 (the posting had no checkable requirements) | none | none | 0 s |
+
+In the browser, "Senior Java Engineer" gave 6 gap questions and 2 about what the resume shows. Fixes
+made from these runs: a hint said "your resume doesn't show this" for "Docker and microservices" on a
+resume listing Docker (partial matches now count any non-generic word); hints pointed at words like
+"data", "databases" and "frameworks" (now ignored); the gap hint now says the resume "doesn't use
+these words", since "containerization" was reported absent from a resume listing Docker and
+Kubernetes; the template no longer reads "experience with ECMO experience" or lowercases "Kafka".
+
+The model asked for 2 general questions in every run but returned them in only one.
+
+**Decision.** Adopted for the resume check roles. What a candidate is told to draw on is never
+generated.
+
+**Evidence.** `tests/test_interview.py`, `tests/test_api.py`
 
 ---
 

@@ -16,6 +16,49 @@ type Letter = {
   rejected: { text: string; issue: string }[];
 };
 
+type PrepItem = { requirement: string; status: string; question: string; hint: string; generated: boolean; issue: string | null };
+type Interview = { kind: "interview"; message: string | null; items: PrepItem[]; general: PrepItem[]; templates: number };
+
+const GROUPS: { title: string; statuses: string[] }[] = [
+  { title: "Questions about gaps, to rehearse first", statuses: ["not_found", "partly"] },
+  { title: "Questions about what your resume shows", statuses: ["shown"] },
+  { title: "General strengths", statuses: ["soft"] },
+];
+
+function InterviewView({ data }: { data: Interview }) {
+  if (data.message) return <p className="small muted">{data.message}</p>;
+  const failed = data.items.filter((i) => !i.generated && i.issue);
+  const groups = GROUPS.map((g) => ({ ...g, items: data.items.filter((i) => g.statuses.includes(i.status)) }));
+  if (data.general.length) groups.push({ title: "About the role", statuses: ["general"], items: data.general });
+  return (
+    <div className="tailor-out">
+      {groups.filter((g) => g.items.length).map((g) => (
+        <div key={g.title} className="prep-group">
+          <p className="label">{g.title}</p>
+          {g.items.map((i, n) => (
+            <div className="rewrite" key={n}>
+              <p className="question">{i.question}</p>
+              {i.status !== "general" && <p className="small muted">For: {i.requirement}</p>}
+              <p className="small">{i.hint}</p>
+            </div>
+          ))}
+        </div>
+      ))}
+      <p className="small muted">
+        Questions are what an interviewer is likely to ask; what to draw on comes from your resume and the checks above,
+        not from the model.
+        {data.templates > 0 && ` ${data.templates} ${data.templates === 1 ? "question is a plain template" : "questions are plain templates"} because the model's question failed a check or was missing.`}
+      </p>
+      {failed.length > 0 && (
+        <details className="how">
+          <summary>Why some model questions weren&apos;t used</summary>
+          <ul>{failed.map((i, n) => <li key={n}>{i.requirement}: {i.issue}</li>)}</ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
   const [done, setDone] = useState(false);
   return (
@@ -82,20 +125,27 @@ function LetterView({ data }: { data: Letter }) {
 }
 
 export default function Tailor({ job, resumeText }: { job: Job; resumeText: string }) {
-  const [state, setState] = useState<{ kind: "idle" } | { kind: "working"; what: string } | { kind: "error"; message: string } | { kind: "done"; data: Bullets | Letter }>({ kind: "idle" });
+  const [state, setState] = useState<{ kind: "idle" } | { kind: "working"; what: string } | { kind: "error"; message: string } | { kind: "done"; data: Bullets | Letter | Interview }>({ kind: "idle" });
 
-  async function run(kind: "bullets" | "letter") {
-    setState({ kind: "working", what: kind === "bullets" ? "Rewriting your bullets for this posting" : "Drafting a cover letter" });
+  async function run(kind: "bullets" | "letter" | "interview") {
+    const what = { bullets: "Rewriting your bullets for this posting", letter: "Drafting a cover letter", interview: "Preparing interview questions" }[kind];
+    setState({ kind: "working", what });
     const evidence = job.requirements.filter((r) => r.met && r.resume_quote).map((r) => ({ requirement: r.text, resume_quote: r.resume_quote! }));
+    const requirements = job.requirements.map((r) => ({ text: r.text, resume_quote: r.met ? r.resume_quote : null, credential: r.credential }));
     try {
-      const res = await fetch("/api/tailor", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, job_id: job.job_id, resume_text: resumeText, evidence }),
-      });
+      const res = kind === "interview"
+        ? await fetch("/api/interview", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: job.job_id, resume_text: resumeText, requirements }),
+          })
+        : await fetch("/api/tailor", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind, job_id: job.job_id, resume_text: resumeText, evidence }),
+          });
       if (handleSignedOut(res)) return;
       const body = await res.json().catch(() => ({}));
       if (!res.ok) { setState({ kind: "error", message: body?.detail?.message || "Something went wrong. Try again." }); return; }
-      setState({ kind: "done", data: body });
+      setState({ kind: "done", data: kind === "interview" ? { ...body, kind: "interview" } : body });
     } catch {
       setState({ kind: "error", message: "Couldn't reach the analysis service. Is the API running on port 8000?" });
     }
@@ -108,10 +158,12 @@ export default function Tailor({ job, resumeText }: { job: Job; resumeText: stri
       <div className="row">
         <button type="button" className="button ghost" disabled={working} onClick={() => run("bullets")}>Suggest resume edits</button>
         <button type="button" className="button ghost" disabled={working} onClick={() => run("letter")}>Draft a cover letter</button>
+        <button type="button" className="button ghost" disabled={working} onClick={() => run("interview")}>Prepare for the interview</button>
       </div>
       {working && <p className="small muted" role="status">{state.what}, usually 10 to 15 s.</p>}
       {state.kind === "error" && <p className="error" role="alert">{state.message}</p>}
-      {state.kind === "done" && (state.data.kind === "bullets" ? <BulletsView data={state.data} /> : <LetterView data={state.data} />)}
+      {state.kind === "done" && (state.data.kind === "bullets" ? <BulletsView data={state.data} />
+        : state.data.kind === "letter" ? <LetterView data={state.data} /> : <InterviewView data={state.data} />)}
     </div>
   );
 }

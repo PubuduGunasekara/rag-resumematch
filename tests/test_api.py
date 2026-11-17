@@ -254,3 +254,29 @@ def test_tailor_refuses_bad_requests(monkeypatch):
     assert c.post("/api/tailor", json={"kind": "poem", "job_id": "7", "resume_text": RESUME}).status_code == 400
     assert c.post("/api/tailor", json={"kind": "letter", "job_id": "7", "resume_text": " "}).status_code == 400
     assert c.post("/api/tailor", json={"kind": "letter", "job_id": "7", "resume_text": RESUME}).status_code == 404
+
+
+def test_interview_returns_questions_with_hints(monkeypatch):
+    from resumematch.generation.interview import InterviewPrep, PrepItem
+    _fake_tailor_store(monkeypatch, [{"text": "ACLS required.", "title": "RN ICU", "company_name": "Acme", "section": "description"}])
+    seen = {}
+
+    def prepare(resume, title, company, req_text, reqs, client):
+        seen["reqs"] = reqs
+        return InterviewPrep([PrepItem("ACLS", "shown", resume_quote="ACLS, BLS", question="Tell me about ACLS?"),
+                              PrepItem("ECMO", "not_found", question="Your ECMO experience?", generated=False, issue="x")],
+                             [PrepItem("About the role", "general", question="Why us?")])
+    monkeypatch.setattr(api.interview, "prepare", prepare)
+    body = TestClient(api.app).post("/api/interview", json={
+        "job_id": "7", "resume_text": RESUME, "requirements": [{"text": "ACLS", "resume_quote": "ACLS, BLS"}]}).json()
+    assert seen["reqs"][0].text == "ACLS" and seen["reqs"][0].resume_quote == "ACLS, BLS"
+    assert body["items"][0]["hint"].startswith('Draw on: "ACLS, BLS"') and body["templates"] == 1
+    assert body["general"][0]["question"] == "Why us?" and body["message"] is None
+
+
+def test_interview_with_nothing_checkable_says_so(monkeypatch):
+    from resumematch.generation.interview import InterviewPrep
+    _fake_tailor_store(monkeypatch, [{"text": "x", "title": "T", "company_name": None, "section": "description"}])
+    monkeypatch.setattr(api.interview, "prepare", lambda *a: InterviewPrep([], []))
+    body = TestClient(api.app).post("/api/interview", json={"job_id": "7", "resume_text": RESUME}).json()
+    assert body["items"] == [] and "nothing to prepare" in body["message"]

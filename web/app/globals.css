@@ -215,3 +215,6 @@ details.how ul, details.how ol { margin: 10px 0 0; padding-left: 20px; color: va
 .letter p { margin: 0 0 12px; }
 .letter p:last-child { margin-bottom: 0; }
 .letter .cited { text-decoration: underline; text-decoration-color: var(--moss); text-underline-offset: 3px; }
+.prep-group { margin-top: 10px; }
+.prep-group .label { margin: 12px 0 2px; font-size: 13px; color: var(--graphite); text-transform: uppercase; letter-spacing: 0.04em; }
+.rewrite .question { font-weight: 500; }

@@ -14,6 +14,8 @@ Endpoints:
                            form "allow_unusual" (bool: "Check it anyway" after a soft warning)
     POST /api/tailor       JSON {"kind": "bullets"|"letter", "job_id", "resume_text", "evidence"}:
                            resume bullet rewrites or a cover letter for one posting, checked in code
+    POST /api/interview    JSON {"job_id", "resume_text", "requirements"}: likely questions for one
+                           posting, each with what on the resume to draw on
     GET  /api/filter-options  choices and counts for the search filters
     GET  /api/roles        ?q= title suggestions for the role report
     POST /api/role-report  form "role", optional multipart "file": what postings with
@@ -51,7 +53,7 @@ from pydantic import BaseModel
 
 from resumematch.api import auth
 from resumematch.frontend.render import highlight_spans
-from resumematch.generation import tailor
+from resumematch.generation import interview, tailor
 from resumematch.generation.job_report import requirement_excerpt
 from resumematch.generation.ollama_client import OllamaClient
 from resumematch.health import as_dicts, check
@@ -361,6 +363,15 @@ def tailor_to_json(result: tailor.TailorResult) -> dict:
     }
 
 
+def _posting(job_id: str) -> tuple[str, str | None, str]:
+    """(title, company, requirement sentences) of one indexed posting, or a 404."""
+    store = VectorStore(persist_dir=resolve_persist_dir(load_config()))
+    chunks = store.get_posting_chunks(job_id)
+    if not chunks:
+        raise _error(404, "no_posting", "That posting isn't in the index.")
+    return chunks[0]["title"], chunks[0].get("company_name"), "\n".join(c["text"] for c in requirement_excerpt(chunks))
+
+
 @app.post("/api/tailor")
 def tailor_endpoint(body: TailorBody, _user: auth.User = Depends(RESUME_CHECK_ROLES)) -> dict:
     """The resume text comes back from the report the browser already has
@@ -372,12 +383,8 @@ def tailor_endpoint(body: TailorBody, _user: auth.User = Depends(RESUME_CHECK_RO
     if not _busy.acquire(blocking=False):
         raise _error(429, "busy", "Another request is running right now. Try again in a minute.")
     try:
-        store = VectorStore(persist_dir=resolve_persist_dir(load_config()))
-        chunks = store.get_posting_chunks(body.job_id)
-        if not chunks:
-            raise _error(404, "no_posting", "That posting isn't in the index.")
-        requirement_text = "\n".join(c["text"] for c in requirement_excerpt(chunks))
-        title, company, client = chunks[0]["title"], chunks[0].get("company_name"), OllamaClient()
+        title, company, requirement_text = _posting(body.job_id)
+        client = OllamaClient()
         if body.kind == "bullets":
             result = tailor.suggest_rewrites(body.resume_text, title, company, requirement_text, client)
         else:
@@ -392,6 +399,53 @@ def tailor_endpoint(body: TailorBody, _user: auth.User = Depends(RESUME_CHECK_RO
         raise _error(502, "bad_model_output", "The model's answer couldn't be used, even after a retry. Try again.") from None
     except Exception as err:  # noqa: BLE001 - type and stack only, never the message (it could quote the resume)
         log.error("tailor failed: %s\n%s", type(err).__name__, "".join(traceback.format_tb(err.__traceback__)))
+        raise _error(500, "internal", "Something went wrong. Try again.") from None
+    finally:
+        _busy.release()
+
+
+class ReportRequirementItem(BaseModel):
+    text: str
+    resume_quote: str | None = None
+    credential: bool = False
+
+
+class InterviewBody(BaseModel):
+    job_id: str
+    resume_text: str
+    requirements: list[ReportRequirementItem] = []
+
+
+def interview_to_json(prep: interview.InterviewPrep) -> dict:
+    def item(i: interview.PrepItem) -> dict:
+        return {"requirement": i.requirement, "status": i.status, "question": i.question, "hint": i.hint,
+                "generated": i.generated, "issue": i.issue}
+    return {
+        "message": None if prep.items else "This posting had no requirements that could be checked, so there is nothing to prepare from.",
+        "items": [item(i) for i in prep.items],
+        "general": [item(i) for i in prep.general],
+        "templates": sum(not i.generated for i in prep.items),
+    }
+
+
+@app.post("/api/interview")
+def interview_endpoint(body: InterviewBody, _user: auth.User = Depends(RESUME_CHECK_ROLES)) -> dict:
+    """Requirements come from the report the browser has; their statuses are
+    recomputed against the resume text, not trusted."""
+    if not body.resume_text.strip() or len(body.resume_text) > MAX_RESUME_CHARS:
+        raise _error(400, "bad_resume", "Run the resume check again, then try this.")
+    if not _busy.acquire(blocking=False):
+        raise _error(429, "busy", "Another request is running right now. Try again in a minute.")
+    try:
+        title, company, requirement_text = _posting(body.job_id)
+        reqs = [interview.ReportRequirement(r.text, r.resume_quote, r.credential) for r in body.requirements[:30]]
+        return interview_to_json(interview.prepare(body.resume_text, title, company, requirement_text, reqs, OllamaClient()))
+    except HTTPException:
+        raise
+    except requests.ConnectionError:
+        raise _error(503, "model_down", "The local model isn't running. Start Ollama and try again.") from None
+    except Exception as err:  # noqa: BLE001 - type and stack only, never the message (it could quote the resume)
+        log.error("interview failed: %s\n%s", type(err).__name__, "".join(traceback.format_tb(err.__traceback__)))
         raise _error(500, "internal", "Something went wrong. Try again.") from None
     finally:
         _busy.release()
